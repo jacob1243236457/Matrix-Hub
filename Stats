@@ -1,0 +1,551 @@
+-- Self-contained Advanced UI Injection Script with Real-Time Event Listening
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local player = Players.LocalPlayer
+
+local uiParent = game:GetService("CoreGui") or player:WaitForChild("PlayerGui")
+
+-- Clean up older versions
+local existingGui = uiParent:FindFirstChild("DiagnosticUtilityGui")
+if existingGui then
+    existingGui:Destroy()
+end
+
+-- --- SCREEN CONTAINER ---
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "DiagnosticUtilityGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = uiParent
+
+-- Main Window
+local mainWindow = Instance.new("Frame")
+mainWindow.Name = "MainFrame"
+mainWindow.Size = UDim2.new(0, 420, 0, 530)
+mainWindow.Position = UDim2.new(0.5, -210, 0.5, -265)
+mainWindow.BackgroundColor3 = Color3.fromRGB(15, 17, 22)
+mainWindow.BackgroundTransparency = 0.15
+mainWindow.BorderSizePixel = 0
+mainWindow.Active = true
+mainWindow.Draggable = true
+mainWindow.Parent = screenGui
+
+local windowCorner = Instance.new("UICorner")
+windowCorner.CornerRadius = UDim.new(0, 12)
+windowCorner.Parent = mainWindow
+
+-- --- SEARCH BAR ---
+local searchBar = Instance.new("TextBox")
+searchBar.Name = "SearchBar"
+searchBar.Size = UDim2.new(1, -24, 0, 36)
+searchBar.Position = UDim2.new(0, 12, 0, 40)
+searchBar.BackgroundColor3 = Color3.fromRGB(25, 28, 34)
+searchBar.BackgroundTransparency = 0.4
+searchBar.Text = ""
+searchBar.PlaceholderText = "Enter username..."
+searchBar.TextColor3 = Color3.fromRGB(255, 255, 255)
+searchBar.PlaceholderColor3 = Color3.fromRGB(110, 115, 125)
+searchBar.Font = Enum.Font.SourceSans
+searchBar.TextSize = 15
+searchBar.TextXAlignment = Enum.TextXAlignment.Left
+searchBar.BorderSizePixel = 0
+searchBar.Parent = mainWindow
+
+local searchCorner = Instance.new("UICorner")
+searchCorner.CornerRadius = UDim.new(0, 8)
+searchCorner.Parent = searchBar
+
+local searchPadding = Instance.new("UIPadding")
+searchPadding.PaddingLeft = UDim.new(0, 12)
+searchPadding.Parent = searchBar
+
+-- --- PROFILE DATA AREA ---
+local profileContainer = Instance.new("Frame")
+profileContainer.Name = "ProfileData"
+profileContainer.Size = UDim2.new(1, -24, 0, 190)
+profileContainer.Position = UDim2.new(0, 12, 0, 95)
+profileContainer.BackgroundTransparency = 1
+profileContainer.Parent = mainWindow
+
+local handleLabel = Instance.new("TextLabel")
+handleLabel.Size = UDim2.new(1, 0, 0, 24)
+handleLabel.Text = "@AwaitingScan"
+handleLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
+handleLabel.Font = Enum.Font.SourceSans
+handleLabel.TextSize = 18
+handleLabel.TextXAlignment = Enum.TextXAlignment.Left
+handleLabel.BackgroundTransparency = 1
+handleLabel.Parent = profileContainer
+
+local detailsLabel = Instance.new("TextLabel")
+detailsLabel.Size = UDim2.new(1, 0, 1, -26)
+detailsLabel.Position = UDim2.new(0, 0, 0, 26)
+detailsLabel.Text = "Veteran: N/A\nHalsite: N/A\nElite: N/A\nRegion: N/A\nSector: N/A\nPreciseSector: N/A\nHealth: N/A\nExposure: N/A\nMutated: N/A\nEvolution: N/A"
+detailsLabel.TextColor3 = Color3.fromRGB(165, 170, 180)
+detailsLabel.Font = Enum.Font.SourceSans
+detailsLabel.TextSize = 14
+detailsLabel.TextXAlignment = Enum.TextXAlignment.Left
+detailsLabel.TextYAlignment = Enum.TextYAlignment.Top
+detailsLabel.LineHeight = 1.15
+detailsLabel.BackgroundTransparency = 1
+detailsLabel.Parent = profileContainer
+
+-- --- WEIGHT AND UNIT TOGGLE ---
+local weightLabel = Instance.new("TextLabel")
+weightLabel.Size = UDim2.new(0, 150, 0, 24)
+weightLabel.Position = UDim2.new(0, 12, 0, 290)
+weightLabel.Text = "Weight: --"
+weightLabel.TextColor3 = Color3.fromRGB(205, 210, 220)
+weightLabel.Font = Enum.Font.SourceSans
+weightLabel.TextSize = 16
+weightLabel.TextXAlignment = Enum.TextXAlignment.Left
+weightLabel.BackgroundTransparency = 1
+weightLabel.Parent = mainWindow
+
+local unitToggle = Instance.new("TextButton")
+unitToggle.Size = UDim2.new(0, 50, 0, 30)
+unitToggle.Position = UDim2.new(1, -62, 0, 287)
+unitToggle.BackgroundColor3 = Color3.fromRGB(50, 95, 175)
+unitToggle.Text = "lbs"
+unitToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+unitToggle.Font = Enum.Font.SourceSansBold
+unitToggle.TextSize = 14
+unitToggle.BorderSizePixel = 0
+unitToggle.Parent = mainWindow
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleCorner.Parent = unitToggle
+
+-- --- CHART GRAPH VISUALIZATION ---
+local graphPanel = Instance.new("Frame")
+graphPanel.Name = "GraphDisplay"
+graphPanel.Size = UDim2.new(1, -24, 0, 180)
+graphPanel.Position = UDim2.new(0, 12, 0, 335)
+graphPanel.BackgroundColor3 = Color3.fromRGB(22, 25, 30)
+graphPanel.BackgroundTransparency = 0.5
+graphPanel.BorderSizePixel = 0
+graphPanel.Parent = mainWindow
+
+local graphCorner = Instance.new("UICorner")
+graphCorner.CornerRadius = UDim.new(0, 10)
+graphCorner.Parent = graphPanel
+
+local graphStroke = Instance.new("UIStroke")
+graphStroke.Color = Color3.fromRGB(38, 42, 50)
+graphStroke.Thickness = 1
+graphStroke.Parent = graphPanel
+
+-- Horizontal Axis guidelines
+for i = 1, 3 do
+    local horizontalLine = Instance.new("Frame")
+    horizontalLine.Size = UDim2.new(1, 0, 0, 1)
+    horizontalLine.Position = UDim2.new(0, 0, 0.25 * i, 0)
+    horizontalLine.BackgroundColor3 = Color3.fromRGB(35, 40, 48)
+    horizontalLine.BorderSizePixel = 0
+    horizontalLine.Parent = graphPanel
+    
+    if i == 2 then
+        horizontalLine.BackgroundColor3 = Color3.fromRGB(55, 62, 75)
+        local zeroLabel = Instance.new("TextLabel")
+        zeroLabel.Size = UDim2.new(0, 20, 0, 14)
+        zeroLabel.Position = UDim2.new(0, 4, 0.5, -7)
+        zeroLabel.Text = "0"
+        zeroLabel.TextColor3 = Color3.fromRGB(75, 82, 95)
+        zeroLabel.Font = Enum.Font.SourceSans
+        zeroLabel.TextSize = 10
+        zeroLabel.BackgroundTransparency = 1
+        zeroLabel.Parent = horizontalLine
+    end
+end
+
+-- Layout text categories matching dot axes positions directly
+local categories = {
+    {name = "Agility", scale = 0.25},
+    {name = "Strength", scale = 0.50},
+    {name = "Intelligence", scale = 0.75}
+}
+
+for _, cat in ipairs(categories) do
+    local catLabel = Instance.new("TextLabel")
+    catLabel.Size = UDim2.new(0, 100, 0, 20)
+    catLabel.Position = UDim2.new(cat.scale, -50, 1, -22)
+    catLabel.Text = cat.name
+    catLabel.TextColor3 = Color3.fromRGB(100, 105, 115)
+    catLabel.Font = Enum.Font.SourceSans
+    catLabel.TextSize = 12
+    catLabel.TextXAlignment = Enum.TextXAlignment.Center
+    catLabel.BackgroundTransparency = 1
+    catLabel.Parent = graphPanel
+end
+
+-- --- CODE-TO-COUNTRY REVERSE DICTIONARY ---
+local shortToFullCountries = {
+    ["AF"] = "Afghanistan", ["AX"] = "Aland Islands", ["AL"] = "Albania", ["DZ"] = "Algeria",
+    ["AS"] = "American Samoa", ["AD"] = "Andorra", ["AO"] = "Angola", ["AI"] = "Anguilla",
+    ["AQ"] = "Antarctica", ["AG"] = "Antigua and Barbuda", ["AR"] = "Argentina", ["AM"] = "Armenia",
+    ["AW"] = "Aruba", ["AU"] = "Australia", ["AT"] = "Austria", ["AZ"] = "Azerbaijan",
+    ["BS"] = "Bahamas", ["BH"] = "Bahrain", ["BD"] = "Bangladesh", ["BB"] = "Barbados",
+    ["BY"] = "Belarus", ["BE"] = "Belgium", ["BZ"] = "Belize", ["BJ"] = "Benin", ["BM"] = "Bermuda",
+    ["BT"] = "Bhutan", ["BO"] = "Bolivia", ["BQ"] = "Bonaire, Sint Eustatius and Saba",
+    ["BA"] = "Bosnia and Herzegovina", ["BW"] = "Botswana", ["BV"] = "Bouvet Island",
+    ["BR"] = "Brazil", ["IO"] = "British Indian Ocean Territory", ["BN"] = "Brunei Darussalam",
+    ["BG"] = "Bulgaria", ["BF"] = "Burkina Faso", ["BI"] = "Burundi", ["CV"] = "Cabo Verde",
+    ["KH"] = "Cambodia", ["CM"] = "Cameroon", ["CA"] = "Canada", ["KY"] = "Cayman Islands",
+    ["CF"] = "Central African Republic", ["TD"] = "Chad", ["CL"] = "Chile", ["CN"] = "China",
+    ["CX"] = "Christmas Island", ["CC"] = "Cocos (Keeling) Islands", ["CO"] = "Colombia",
+    ["KM"] = "Comoros", ["CG"] = "Congo", ["CD"] = "Congo, Democratic Republic of the",
+    ["CK"] = "Cook Islands", ["CR"] = "Costa Rica", ["CI"] = "Cote d'Ivoire", ["HR"] = "Croatia",
+    ["CU"] = "Cuba", ["CW"] = "Curacao", ["CY"] = "Cyprus", ["CZ"] = "Czechia", ["DK"] = "Denmark",
+    ["DJ"] = "Djibouti", ["DM"] = "Dominica", ["DO"] = "Dominican Republic", ["EC"] = "Ecuador",
+    ["EG"] = "Egypt", ["SV"] = "El Salvador", ["GQ"] = "Equatorial Guinea", ["ER"] = "Eritrea",
+    ["EE"] = "Estonia", ["SZ"] = "Eswatini", ["ET"] = "Ethiopia", ["FK"] = "Falkland Islands",
+    ["FO"] = "Faroe Islands", ["FJ"] = "Fiji", ["FI"] = "Finland", ["FR"] = "France",
+    ["GF"] = "French Guiana", ["PF"] = "French Polynesia", ["TF"] = "French Southern Territories",
+    ["GA"] = "Gabon", ["GM"] = "Gambia", ["GE"] = "Georgia", ["DE"] = "Germany", ["GH"] = "Ghana",
+    ["GI"] = "Gibraltar", ["GR"] = "Greece", ["GL"] = "Greenland", ["GD"] = "Grenada",
+    ["GP"] = "Guadeloupe", ["GU"] = "Guam", ["GT"] = "Guatemala", ["GG"] = "Guernsey",
+    ["GN"] = "Guinea", ["GW"] = "Guinea-Bissau", ["GY"] = "Guyana", ["HT"] = "Haiti",
+    ["HM"] = "Heard Island and McDonald Islands", ["VA"] = "Holy See", ["HN"] = "Honduras",
+    ["HK"] = "Hong Kong", ["HU"] = "Hungary", ["IS"] = "Iceland", ["IN"] = "India",
+    ["ID"] = "Indonesia", ["IR"] = "Iran", ["IQ"] = "Iraq", ["IE"] = "Ireland", ["IM"] = "Isle of Man",
+    ["IL"] = "Israel", ["IT"] = "Italy", ["JM"] = "Jamaica", ["JP"] = "Japan", ["JE"] = "Jersey",
+    ["JO"] = "Jordan", ["KZ"] = "Kazakhstan", ["KE"] = "Kenya", ["KI"] = "Kiribati",
+    ["KP"] = "Korea, North", ["KR"] = "Korea, South", ["KW"] = "Kuwait", ["KG"] = "Kyrgyzstan",
+    ["LA"] = "Laos", ["LV"] = "Latvia", ["LB"] = "Lebanon", ["LS"] = "Lesotho", ["LR"] = "Liberia",
+    ["LY"] = "Libya", ["LI"] = "Liechtenstein", ["LT"] = "Lithuania", ["LU"] = "Luxembourg",
+    ["MO"] = "Macao", ["MG"] = "Madagascar", ["MW"] = "Malawi", ["MY"] = "Malaysia",
+    ["MV"] = "Maldives", ["ML"] = "Mali", ["MT"] = "Malta", ["MH"] = "Marshall Islands",
+    ["MQ"] = "Martinique", ["MR"] = "Mauritania", ["MU"] = "Mauritius", ["YT"] = "Mayotte",
+    ["MX"] = "Mexico", ["FM"] = "Micronesia", ["MD"] = "Moldova", ["MC"] = "Monaco",
+    ["MN"] = "Mongolia", ["ME"] = "Montenegro", ["MS"] = "Montserrat", ["MA"] = "Morocco",
+    ["MZ"] = "Mozambique", ["MM"] = "Myanmar", ["NA"] = "Namibia", ["NR"] = "Nauru",
+    ["NP"] = "Nepal", ["NL"] = "Netherlands", ["NC"] = "New Caledonia", ["NZ"] = "New Zealand",
+    ["NI"] = "Nicaragua", ["NE"] = "Niger", ["NG"] = "Nigeria", ["NU"] = "Niue",
+    ["NF"] = "Norfolk Island", ["MK"] = "North Macedonia", ["MP"] = "Northern Mariana Islands",
+    ["NO"] = "Norway", ["OM"] = "Oman", ["PK"] = "Pakistan", ["PW"] = "Palau", ["PS"] = "Palestine",
+    ["PA"] = "Panama", ["PG"] = "Papua New Guinea", ["PY"] = "Paraguay", ["PE"] = "Peru",
+    ["PH"] = "Philippines", ["PN"] = "Pitcairn", ["PL"] = "Poland", ["PT"] = "Portugal",
+    ["PR"] = "Puerto Rico", ["QA"] = "Qatar", ["RE"] = "Reunion", ["RO"] = "Romania",
+    ["RU"] = "Russian Federation", ["RW"] = "Rwanda", ["BL"] = "Saint Barthelemy",
+    ["SH"] = "Saint Helena, Ascension and Tristan da Cunha", ["KN"] = "Saint Kitts and Nevis",
+    ["LC"] = "Saint Lucia", ["MF"] = "Saint Martin (French part)", ["PM"] = "Saint Pierre and Miquelon",
+    ["VC"] = "Saint Vincent and the Grenadines", ["WS"] = "Samoa", ["SM"] = "San Marino",
+    ["ST"] = "Sao Tome and Principe", ["SA"] = "Saudi Arabia", ["SN"] = "Senegal",
+    ["RS"] = "Serbia", ["SC"] = "Seychelles", ["SL"] = "Sierra Leone", ["SG"] = "Singapore",
+    ["SX"] = "Sint Maarten (Dutch part)", ["SK"] = "Slovakia", ["SI"] = "Slovenia",
+    ["SB"] = "Solomon Islands", ["SO"] = "Somalia", ["ZA"] = "South Africa",
+    ["GS"] = "South Georgia and the South Sandwich Islands", ["SS"] = "South Sudan",
+    ["ES"] = "Spain", ["LK"] = "Sri Lanka", ["SD"] = "Sudan", ["SR"] = "Suriname",
+    ["SJ"] = "Svalbard and Jan Mayen", ["SE"] = "Sweden", ["CH"] = "Switzerland",
+    ["SY"] = "Syria", ["TW"] = "Taiwan", ["TJ"] = "Tajikistan", ["TZ"] = "Tanzania",
+    ["TH"] = "Thailand", ["TL"] = "Timor-Leste", ["TG"] = "Togo", ["TK"] = "Tokelau",
+    ["TO"] = "Tonga", ["TT"] = "Trinidad and Tobago", ["TN"] = "Tunisia", ["TR"] = "Turkey",
+    ["TM"] = "Turkmenistan", ["TC"] = "Turks and Caicos Islands", ["TV"] = "Tuvalu",
+    ["UG"] = "Uganda", ["UA"] = "Ukraine", ["AE"] = "United Arab Emirates", ["UK"] = "United Kingdom",
+    ["US"] = "United States", ["UM"] = "United States Minor Outlying Islands", ["UY"] = "Uruguay",
+    ["UZ"] = "Uzbekistan", ["VU"] = "Vanuatu", ["VE"] = "Venezuela", ["VN"] = "Viet Nam",
+    ["VG"] = "Virgin Islands (British)", ["VI"] = "Virgin Islands (U.S.)",
+    ["WF"] = "Wallis and Futuna", ["EH"] = "Western Sahara", ["YE"] = "Yemen",
+    ["ZM"] = "Zambia", ["ZW"] = "Zimbabwe", ["XK"] = "Kosovo", ["EU"] = "European Union"
+}
+
+local function formatRegionCode(rawRegion)
+    if not rawRegion then return "N/A" end
+    local cleanString = string.upper(string.gsub(tostring(rawRegion), "^%s*(.-)%s*$", "%1"))
+    if shortToFullCountries[cleanString] then
+        return shortToFullCountries[cleanString]
+    end
+    return tostring(rawRegion)
+end
+
+-- --- LOGIC / CONNECTIONS TRACKING ---
+local renderedNodes = {}
+local renderedLines = {}
+local activeTargetPlayer = nil
+local activeConnections = {}
+
+local rawWeightValue = 0
+local function updateWeightDisplay()
+    if rawWeightValue == 0 then
+        weightLabel.Text = "Weight: N/A"
+        return
+    end
+    
+    if unitToggle.Text == "lbs" then
+        weightLabel.Text = string.format("Weight: %.1f lbs", rawWeightValue)
+    else
+        local kgWeight = rawWeightValue * 0.45359237
+        weightLabel.Text = string.format("Weight: %.1f kg", kgWeight)
+    end
+end
+
+unitToggle.MouseButton1Click:Connect(function()
+    unitToggle.Text = (unitToggle.Text == "lbs") and "kg" or "lbs"
+    updateWeightDisplay()
+end)
+
+local function clearGraph()
+    for _, node in pairs(renderedNodes) do node:Destroy() end
+    for _, line in pairs(renderedLines) do line:Destroy() end
+    renderedNodes = {}
+    renderedLines = {}
+end
+
+local function disconnectActiveListeners()
+    for _, connection in pairs(activeConnections) do
+        if connection then connection:Disconnect() end
+    end
+    activeConnections = {}
+end
+
+local function createNode(xScale, yValue)
+    local nodeContainer = Instance.new("Frame")
+    nodeContainer.Size = UDim2.new(0, 80, 0, 40)
+    nodeContainer.BackgroundTransparency = 1
+    
+    local percentageOffset = yValue / 250
+    local calculatedY = 0.5 - (percentageOffset * 0.4)
+    
+    nodeContainer.Position = UDim2.new(xScale, -40, math.clamp(calculatedY, 0.08, 0.82), -6)
+    nodeContainer.Parent = graphPanel
+
+    local nodeDot = Instance.new("ImageLabel")
+    nodeDot.Name = "Dot"
+    nodeDot.Size = UDim2.new(0, 12, 0, 12)
+    nodeDot.Position = UDim2.new(0.5, -6, 0, 0)
+    nodeDot.BackgroundColor3 = Color3.fromRGB(110, 175, 235)
+    nodeDot.BorderSizePixel = 0
+    nodeDot.Parent = nodeContainer
+    
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(1, 0)
+    c.Parent = nodeDot
+    
+    local valLabel = Instance.new("TextLabel")
+    valLabel.Size = UDim2.new(1, 0, 0, 14)
+    valLabel.Position = UDim2.new(0, 0, 0, -18)
+    valLabel.Text = string.format("%.2f", yValue)
+    valLabel.TextColor3 = Color3.fromRGB(200, 205, 215)
+    valLabel.Font = Enum.Font.SourceSans
+    valLabel.TextSize = 11
+    valLabel.TextXAlignment = Enum.TextXAlignment.Center
+    valLabel.BackgroundTransparency = 1
+    valLabel.Parent = nodeContainer
+    
+    table.insert(renderedNodes, nodeContainer)
+    return nodeDot
+end
+
+local function drawConnectingLine(nA, nB)
+    if not nA or not nB then return end
+    
+    local line = Instance.new("Frame")
+    line.BackgroundColor3 = Color3.fromRGB(70, 130, 200)
+    line.BorderSizePixel = 0
+    line.AnchorPoint = Vector2.new(0.5, 0.5)
+    line.Parent = graphPanel
+    
+    local function updateLine()
+        local pA = nA.AbsolutePosition + (nA.AbsoluteSize / 2) - graphPanel.AbsolutePosition
+        local pB = nB.AbsolutePosition + (nB.AbsoluteSize / 2) - graphPanel.AbsolutePosition
+        local distance = (pA - pB).Magnitude
+        line.Size = UDim2.new(0, distance, 0, 2)
+        line.Position = UDim2.new(0, (pA.X + pB.X) / 2, 0, (pA.Y + pB.Y) / 2)
+        line.Rotation = math.deg(math.atan2(pB.Y - pA.Y, pB.X - pA.X))
+    end
+    
+    updateLine()
+    table.insert(renderedLines, line)
+end
+
+local function getWorkspaceOrPlayerAttribute(targetPlayer, attributeName)
+    if not targetPlayer then return nil end
+    
+    local characterModel = Workspace:FindFirstChild(targetPlayer.Name)
+    if characterModel then
+        local characterVal = characterModel:GetAttribute(attributeName)
+        if characterVal ~= nil then return characterVal end
+    end
+    
+    local playerVal = targetPlayer:GetAttribute(attributeName)
+    if playerVal ~= nil then return playerVal end
+    
+    return nil
+end
+
+-- Refresh UI values on updating attributes
+local function refreshDiagnosticDisplay()
+    if not activeTargetPlayer then return end
+    
+    local paidAccessAttr = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "HasBeenAwardedPaidAccessReward")
+    local halfsiteAttr = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "HasBeenAwardedHalfsiteReward")
+    local isEliteAttr = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "IsElite")
+    
+    local rawRegionCode = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "RegionCode")
+    local regionCode = formatRegionCode(rawRegionCode)
+    
+    local currentSector = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "CurrentSector") or "N/A"
+    local preciseSector = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "CurrentSectorPrecise") or "N/A"
+    
+    rawWeightValue = tonumber(getWorkspaceOrPlayerAttribute(activeTargetPlayer, "Weight")) or 0
+    
+    local veteranStatus = (paidAccessAttr == nil) and "N/A" or ((paidAccessAttr == true) and "True" or "False")
+    local halfsiteStatus = (halfsiteAttr == nil) and "N/A" or ((halfsiteAttr == true) and "True" or "False")
+    local eliteStatus = (isEliteAttr == nil) and "N/A" or ((isEliteAttr == true) and "True" or "False")
+    
+    local healthDisplay = "N/A"
+    local characterModel = Workspace:FindFirstChild(activeTargetPlayer.Name)
+    if characterModel then
+        local humanoid = characterModel:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            healthDisplay = string.format("%.0f/%.0f", humanoid.Health, humanoid.MaxHealth)
+        end
+    end
+    
+    local isMutantAttr = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "IsMutant")
+    local mutantStatus = "No"
+    if isMutantAttr == true then mutantStatus = "Yes" elseif isMutantAttr == nil then mutantStatus = "N/A" end
+    
+    local exposureVal = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "Exposure") or "N/A"
+    local evolutionVal = getWorkspaceOrPlayerAttribute(activeTargetPlayer, "PotentialEvolution") or "N/A"
+    
+    local displayString = string.format(
+        "Veteran: %s\nHalsite: %s\nElite: %s\nRegion: %s\nSector: %s\nPreciseSector: %s\nHealth: %s\nExposure: %s\nMutated: %s\nEvolution: %s",
+        veteranStatus, halfsiteStatus, eliteStatus, tostring(regionCode), tostring(currentSector), tostring(preciseSector),
+        healthDisplay, tostring(exposureVal), mutantStatus, tostring(evolutionVal)
+    )
+    
+    handleLabel.Text = "@" .. activeTargetPlayer.Name
+    detailsLabel.Text = displayString
+    
+    updateWeightDisplay()
+    clearGraph()
+    
+    local agilityVal = tonumber(getWorkspaceOrPlayerAttribute(activeTargetPlayer, "AgilityAttribute")) or 0
+    local strengthVal = tonumber(getWorkspaceOrPlayerAttribute(activeTargetPlayer, "StrengthAttribute")) or 0
+    local intelligenceVal = tonumber(getWorkspaceOrPlayerAttribute(activeTargetPlayer, "IntelligenceAttribute")) or 0
+    
+    local dotA = createNode(0.25, agilityVal)
+    local dotB = createNode(0.50, strengthVal)
+    local dotC = createNode(0.75, intelligenceVal)
+    
+    drawConnectingLine(dotA, dotB)
+    drawConnectingLine(dotB, dotC)
+end
+
+-- Hooks real-time updating triggers instantly
+local function hookRealtimeListeners(targetPlayer)
+    disconnectActiveListeners()
+    activeTargetPlayer = targetPlayer
+    
+    if not targetPlayer then return end
+    
+    table.insert(activeConnections, targetPlayer.AttributeChanged:Connect(refreshDiagnosticDisplay))
+    
+    local function setupCharacterHook(charModel)
+        if not charModel or charModel.Name ~= targetPlayer.Name then return end
+        
+        table.insert(activeConnections, charModel.AttributeChanged:Connect(refreshDiagnosticDisplay))
+        
+        local humanoid = charModel:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            table.insert(activeConnections, humanoid.HealthChanged:Connect(refreshDiagnosticDisplay))
+            table.insert(activeConnections, humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(refreshDiagnosticDisplay))
+        end
+        refreshDiagnosticDisplay()
+    end
+    
+    local initialChar = Workspace:FindFirstChild(targetPlayer.Name)
+    if initialChar then setupCharacterHook(initialChar) end
+    
+    table.insert(activeConnections, Workspace.ChildAdded:Connect(setupCharacterHook))
+    table.insert(activeConnections, Workspace.ChildRemoved:Connect(function(child)
+        if child.Name == targetPlayer.Name then
+            task.defer(refreshDiagnosticDisplay)
+        end
+    end))
+    
+    refreshDiagnosticDisplay()
+end
+
+local function runSearch()
+    local input = searchBar.Text
+    if input == "" then return end
+    
+    local foundPlayer = nil
+    local lowerInput = string.lower(input)
+    
+    for _, p in pairs(Players:GetPlayers()) do
+        if string.lower(p.Name):sub(1, #input) == lowerInput or string.lower(p.DisplayName):sub(1, #input) == lowerInput then
+            foundPlayer = p
+            break
+        end
+    end
+    
+    if not foundPlayer then
+        disconnectActiveListeners()
+        activeTargetPlayer = nil
+        handleLabel.Text = "@UserNotFound"
+        detailsLabel.Text = "User is not in this server."
+        clearGraph()
+        return
+    end
+    
+    hookRealtimeListeners(foundPlayer)
+end
+
+searchBar.FocusLost:Connect(function(enterPressed)
+    if enterPressed then runSearch() end
+end)
+
+-- --- THREE-DOTS MENU & UNINJECTION MECHANICS ---
+local controlMenuButton = Instance.new("TextButton")
+controlMenuButton.Name = "ControlMenuButton"
+controlMenuButton.Size = UDim2.new(0, 40, 0, 20)
+controlMenuButton.Position = UDim2.new(1, -50, 0, 10)
+controlMenuButton.Text = "•••"
+controlMenuButton.TextColor3 = Color3.fromRGB(200, 200, 200)
+controlMenuButton.Font = Enum.Font.SourceSansBold
+controlMenuButton.TextSize = 18
+controlMenuButton.BackgroundTransparency = 1
+controlMenuButton.Parent = mainWindow
+
+local contextDropdown = Instance.new("Frame")
+contextDropdown.Name = "ContextDropdown"
+contextDropdown.Size = UDim2.new(0, 110, 0, 36)
+contextDropdown.Position = UDim2.new(1, -120, 0, 32)
+contextDropdown.BackgroundColor3 = Color3.fromRGB(24, 27, 34)
+contextDropdown.BorderSizePixel = 0
+contextDropdown.Visible = false
+contextDropdown.ZIndex = 10
+contextDropdown.Parent = mainWindow
+
+local dropdownCorner = Instance.new("UICorner")
+dropdownCorner.CornerRadius = UDim.new(0, 6)
+dropdownCorner.Parent = contextDropdown
+
+local dropdownStroke = Instance.new("UIStroke")
+dropdownStroke.Color = Color3.fromRGB(45, 50, 60)
+dropdownStroke.Thickness = 1
+dropdownStroke.Parent = contextDropdown
+
+local uninjectButton = Instance.new("TextButton")
+uninjectButton.Name = "UninjectButton"
+uninjectButton.Size = UDim2.new(1, 0, 1, 0)
+uninjectButton.BackgroundTransparency = 1
+uninjectButton.Text = "Uninject"
+uninjectButton.TextColor3 = Color3.fromRGB(240, 90, 90)
+uninjectButton.Font = Enum.Font.SourceSansBold
+uninjectButton.TextSize = 14
+uninjectButton.ZIndex = 11
+uninjectButton.Parent = contextDropdown
+
+controlMenuButton.MouseButton1Click:Connect(function()
+    contextDropdown.Visible = not contextDropdown.Visible
+end)
+
+uninjectButton.MouseButton1Click:Connect(function()
+    disconnectActiveListeners()
+    clearGraph()
+    screenGui:Destroy()
+end)
