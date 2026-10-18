@@ -1,0 +1,140 @@
+--// =====================================================================
+--// Gun Mods v20 — Multi-Bullet (Shoots 50 bullets per click)
+--// =====================================================================
+
+print("[GunMod] LOADED v20")
+
+local Players    = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local CONFIG = CONFIG or {
+    ["Inf Ammo"]          = true,
+    ["Recoil"]            = "false",
+    ["Spread"]            = false,
+    ["Blockage Bypass"]   = true,
+    ["Infinite Mag"]      = true,
+    ["Bullets Per Shot"]  = 15, -- Set this to how many bullets you want per click
+}
+
+local hooksInstalled = false
+local zeroVector = Vector3.new(0, 0, 0)
+
+local function readRecoilOff()
+    local v = CONFIG["Recoil"]
+    if v == false or v == nil then return true end
+    if type(v) == "string" then return v:lower() == "false" end
+    return false
+end
+
+local function installHooks(fc)
+    if hooksInstalled or type(fc.Fire) ~= "function" then return end
+
+    -- 1. Hook FireRequest (Multi-Bullet)
+    if type(fc.FireRequest) == "function" then
+        local origFireRequest = fc.FireRequest
+        fc.FireRequest = function(self, ...)
+            local bulletCount = tonumber(CONFIG["Bullets Per Shot"]) or 1
+            
+            if bulletCount > 1 and self.FireModes then
+                -- Force the gun to act like a shotgun
+                local originalMode = self.FireMode
+                self.FireMode = self.FireModes.Buckshot
+                
+                -- Loop through and fire
+                local v170 = nil
+                for i = 1, bulletCount do
+                    local res = self:Fire(i, v170)
+                    if res then v170 = res end
+                end
+                
+                -- Restore the gun's original fire mode
+                self.FireMode = originalMode
+                return
+            end
+            
+            return origFireRequest(self, ...)
+        end
+    end
+
+    -- 2. Hook Fire (Recoil, Spread, Block, Mag)
+    if type(fc.Fire) == "function" then
+        local origFire = fc.Fire
+        fc.Fire = function(self, bulletIndex, traceData)
+            local origIsBlocked = self.IsFirearmBlocked
+            if CONFIG["Blockage Bypass"] then
+                self.IsFirearmBlocked = function() return false end
+                self.LastBlockUpdateResult = false
+            end
+
+            local origAmmoLeft
+            if CONFIG["Infinite Mag"] and self.Firearm then
+                origAmmoLeft = self.Firearm:GetAttribute("AmmoLeft")
+            end
+
+            local origBuckSpread
+            if not CONFIG["Spread"] and self.Stats and self.Stats.Bullet then
+                origBuckSpread = self.Stats.Bullet.BuckshotSpread
+                self.Stats.Bullet.BuckshotSpread = 0 -- Zero spread so all bullets hit the same spot
+            end
+
+            local ok, result = pcall(origFire, self, bulletIndex, traceData)
+
+            if CONFIG["Blockage Bypass"] then self.IsFirearmBlocked = origIsBlocked end
+            if origAmmoLeft ~= nil and self.Firearm and not CONFIG["Inf Ammo"] then
+                self.Firearm:SetAttribute("AmmoLeft", math.max(0, origAmmoLeft - 1))
+            end
+            if origBuckSpread then self.Stats.Bullet.BuckshotSpread = origBuckSpread end
+
+            return result
+        end
+    end
+
+    -- 3. Hook GetPatternRecoil
+    if type(fc.GetPatternRecoil) == "function" then
+        local origRecoil = fc.GetPatternRecoil
+        fc.GetPatternRecoil = function(self, index, stats)
+            if readRecoilOff() then return zeroVector end
+            return origRecoil(self, index, stats)
+        end
+    end
+
+    hooksInstalled = true
+    print("[GunMod] Multi-Bullet Hooks Installed ✔")
+end
+
+local function findController()
+    if shared and shared.Knit and shared.Knit.GetController then
+        local ok, fc = pcall(shared.Knit.GetController, "FirearmController")
+        if ok and type(fc) == "table" then return fc end
+    end
+    if getgc then
+        for _, obj in ipairs(getgc(true)) do
+            if type(obj) == "table" and rawget(obj, "Name") == "FirearmController" then
+                return obj 
+            end
+        end
+    end
+    return nil
+end
+
+RunService.Heartbeat:Connect(function()
+    if not hooksInstalled then
+        local fc = findController()
+        if fc then installHooks(fc) end
+    end
+end)
+
+-- Infinite Ammo UI tracking
+local INF_AMMO_VALUE = 50000000
+RunService.Heartbeat:Connect(function()
+    if not CONFIG["Inf Ammo"] then return end
+    local function process(t)
+        if t:IsA("Tool") and t:GetAttribute("AmmoLeft") then
+            t:SetAttribute("AmmoLeft", INF_AMMO_VALUE)
+        end
+    end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then for _, t in ipairs(bp:GetChildren()) do process(t) end end
+    if LocalPlayer.Character then for _, t in ipairs(LocalPlayer.Character:GetChildren()) do process(t) end end
+end)
