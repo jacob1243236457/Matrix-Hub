@@ -1,8 +1,8 @@
 --// =====================================================================
---// Gun Mods - True Silent Aim v2 (Barrel Aim)
+--// True Silent Aim v3 — Bullet Redirect
 --// =====================================================================
 
-print("[SilentAim] LOADED v2")
+print("[SilentAim] LOADED v3")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -19,6 +19,7 @@ local CONFIG = CONFIG or {
 local lmbHeld = false
 local rmbHeld = false
 local hooksInstalled = false
+local originalRaycast = nil
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -27,6 +28,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then lmbHeld = false end
     if input.UserInputType == Enum.UserInputType.MouseButton2 then rmbHeld = false end
 end)
@@ -88,27 +90,38 @@ local function installHooks()
     fc.Fire = function(self, bulletIndex, traceData)
         if isAimbotActive() then
             local targetHead = getTargetHead()
-            if targetHead then
-                -- We hook the Caster directly for one shot
-                local origCasterFire = self.Caster.Fire
-                self.Caster.Fire = function(casterSelf, origin, direction, velocity, behavior, ...)
-                    -- Override the direction to point exactly at the head
-                    local newDirection = (targetHead.Position - origin).Unit
-                    return origCasterFire(casterSelf, origin, newDirection, velocity, behavior, ...)
-                end
+            if targetHead and self.CameraController then
+                -- 1. Save the current camera look position
+                local origCFrame = self.CameraController.CCF
                 
-                -- Fire the gun (the bullet now goes exactly to the head)
-                local result = origFire(self, bulletIndex, traceData)
+                -- 2. Aim the camera at the head (just for the raycast calculation)
+                local newCFrame = CFrame.lookAt(origCFrame.Position, targetHead.Position)
+                self.CameraController.CCF = newCFrame
                 
-                -- Restore the Caster
-                self.Caster.Fire = origCasterFire
-                return result
+                -- 3. Run the original Fire function (the game now calculates the bullet to the head)
+                local ok, result = pcall(origFire, self, bulletIndex, traceData)
+                
+                -- 4. Instantly snap the camera back
+                self.CameraController.CCF = origCFrame
+                
+                if ok then return result end
             end
         end
         return origFire(self, bulletIndex, traceData)
     end
+    
     hooksInstalled = true
-    print("[SilentAim] True Barrel Hooks Installed ✔")
+    print("[SilentAim] Hooks Installed ✔")
 end
 
+-- Wait until the game loads the controller
 RunService.Heartbeat:Connect(installHooks)
+
+-- Cleanup on eject
+if cleanup then
+    cleanup(function()
+        print("[SilentAim] Ejecting...")
+        -- The game will reload the controller if you rejoin, 
+        -- but we can try to unhook here if necessary.
+    end)
+end
