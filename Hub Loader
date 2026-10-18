@@ -65,7 +65,7 @@
     "scripts": [
       {
         "Name": "Gun Mods",
-        "Url": "https://pastebin.com/raw/utJhPc1W",
+        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/main/GunMods",
         "configValues": {
           "Inf Ammo": true,
           "Recoil": "false",
@@ -92,7 +92,7 @@
         }
       },
       {
-        "Name": "Slient Aim",
+        "Name": "Silent Aim",
         "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Slient%20Aim",
         "configValues": {
           "Silent Aim Enabled": true,
