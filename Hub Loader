@@ -65,7 +65,7 @@
     "scripts": [
       {
         "Name": "Gun Mods",
-        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Gun%20Mods",
+        "Url": "https://pastebin.com/raw/utJhPc1W",
         "configValues": {
           "Inf Ammo": true,
           "Recoil": "false",
