@@ -94,8 +94,8 @@
         "Name": "Slient Aim",
         "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Slient%20Aim",
         "configValues": {
-          "Aimbot Enabled": true,
-          "Aimbot Key": "RightClick",
+          "Silent Aim Enabled": true,
+          "Aimbot Key": "Always",
           "FOV": 150
         }
       },
