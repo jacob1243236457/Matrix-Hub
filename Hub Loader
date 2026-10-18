@@ -84,11 +84,19 @@
         }
       },
       {
-        "Name": "Target Remote Kill",
-        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/TargetKill",
-        "Mode": "fire",
+        "Name": "Infinite Grenades",
+        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20InfGrenades",
         "configValues": {
-          "Target User": ""
+          "Infinite Grenades": true
+        }
+      },
+      {
+        "Name": "Slient Aim",
+        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Slient%20Aim",
+        "configValues": {
+          "Aimbot Enabled": true,
+          "Aimbot Key": "RightClick",
+          "FOV": 150
         }
       },
       {
