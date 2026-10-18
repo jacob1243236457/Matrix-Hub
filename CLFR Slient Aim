@@ -1,40 +1,35 @@
 --// =====================================================================
---// Gun Aimbot (Silent Aim)
+--// Gun Aimbot (Silent Aim) — Supports Left/Right Click
 --// =====================================================================
 
 print("[Aimbot] LOADED")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 local CONFIG = CONFIG or {
     ["Aimbot Enabled"] = true,
-    ["Aimbot Key"] = "E", -- Hold E to aimbot, or set to "Always" to always aimbot
-    ["FOV"] = 150, -- Max distance from crosshair to snap
+    ["Aimbot Key"] = "LeftClick", -- "LeftClick", "RightClick", "Always", or a keyboard key like "E"
+    ["FOV"] = 150, 
 }
 
-local aimbotActive = false
-local hooksInstalled = false
+local lmbHeld = false
+local rmbHeld = false
 
--- Find the controller safely
-local function findController(name)
-    if shared and shared.Knit and shared.Knit.GetController then
-        local ok, c = pcall(shared.Knit.GetController, name)
-        if ok and type(c) == "table" then return c end
-    end
-    if getgc then
-        for _, obj in ipairs(getgc(true)) do
-            if type(obj) == "table" and rawget(obj, "Name") == name then
-                return obj
-            end
-        end
-    end
-    return nil
-end
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then lmbHeld = true end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then rmbHeld = true end
+end)
 
--- Get the closest player to the center of the screen
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then lmbHeld = false end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then rmbHeld = false end
+end)
+
 local function getClosestTarget()
     local closest = nil
     local shortestDist = CONFIG["FOV"]
@@ -58,17 +53,20 @@ local function getClosestTarget()
     return closest
 end
 
--- Hook the camera CFrame to snap to the head
 RunService.RenderStepped:Connect(function()
     if not CONFIG["Aimbot Enabled"] then return end
     
     local keyPressed = false
-    if CONFIG["Aimbot Key"] == "Always" then
+    local keyConfig = CONFIG["Aimbot Key"]
+    
+    if keyConfig == "Always" then
         keyPressed = true
+    elseif keyConfig == "LeftClick" then
+        keyPressed = lmbHeld
+    elseif keyConfig == "RightClick" then
+        keyPressed = rmbHeld
     else
-        -- Check if key is held down
-        local UserInputService = game:GetService("UserInputService")
-        local keyCode = Enum.KeyCode[CONFIG["Aimbot Key"]]
+        local keyCode = Enum.KeyCode[keyConfig]
         if keyCode and UserInputService:IsKeyDown(keyCode) then
             keyPressed = true
         end
@@ -77,7 +75,6 @@ RunService.RenderStepped:Connect(function()
     if keyPressed then
         local target = getClosestTarget()
         if target then
-            -- Snap camera to the target's head
             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Position)
         end
     end
