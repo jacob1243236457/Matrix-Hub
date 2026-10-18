@@ -1,0 +1,100 @@
+[
+  {
+    "GameId": "Universal",
+    "scripts": [
+      {
+        "Name": "Infinite Yield",
+        "Url": "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source",
+        "Mode": "once"
+      },
+      {
+        "Name": "Dex++",
+        "Url": "https://github.com/AZYsGithub/DexPlusPlus/releases/latest/download/out.lua",
+        "Mode": "once"
+      },
+      {
+        "Name": "Cobalt",
+        "Url": "https://gitlab.com/upio/cobalt/-/releases/permalink/latest/downloads/Cobalt.luau",
+        "Mode": "once"
+      }
+    ]
+  },
+  {
+    "GameId": 4787647409,
+    "scripts": [
+      {
+        "Name": "Anti-Cheat Bypass",
+        "Url": "https://pastebin.com/raw/3ZGiLcwi"
+      },
+      {
+        "Name": "Admin Alert",
+        "Url": "https://pastebin.com/raw/DSr8aVL9"
+      },
+      {
+        "Name": "Team Request",
+        "Url": "https://pastebin.com/raw/gTrrrKnR",
+        "Mode": "fire",
+        "configValues": {
+          "Team": "Patient"
+        }
+      },
+      {
+        "Name": "Gun Mods",
+        "Url": "https://pastebin.com/raw/0awc646v",
+        "configValues": {
+          "FireDelaySeconds": 0.01,
+          "SpreadRadius": 0,
+          "InfiniteAmmo": true,
+          "NumberBullets": 3
+        }
+      },
+      {
+        "Name": "Silent Aim",
+        "Url": "https://pastebin.com/raw/Zmb5sSrr",
+        "configValues": {
+          "MaxDistance": 500,
+          "AimPart": "Head",
+          "TargetAnyone": false,
+          "AvoidTeammates": true
+        }
+      }
+    ]
+  },
+  {
+    "GameId": 6416498845,
+    "scripts": [
+      {
+        "Name": "Gun Mods",
+        "Url": "https://pastebin.com/raw/utJhPc1W",
+        "configValues": {
+          "Inf Ammo": true,
+          "Recoil": "false",
+          "Spread": false,
+          "Blockage Bypass": true,
+          "Infinite Mag": true
+        }
+      },
+      {
+        "Name": "Melee Mods",
+        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Melee",
+        "configValues": {
+          "Spam Swing": true,
+          "No Stamina": true,
+          "Spam Punch": true
+        }
+      },
+      {
+        "Name": "Target Remote Kill",
+        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/TargetKill",
+        "Mode": "fire",
+        "configValues": {
+          "Target User": ""
+        }
+      },
+      {
+        "Name": "Infinite Stamina",
+        "Url": "https://pastebin.com/raw/V9i2UQsh"
+      }
+    ]
+  }
+]
