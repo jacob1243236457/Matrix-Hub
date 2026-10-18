@@ -1,5 +1,5 @@
 --// =====================================================================
---// Gun Mods v21 — Fixed Multi-Bullet (Works on Auto & Semi)
+--// Gun Mods v21 — Fixed Multi-Bullet + Full Cleanup
 --// =====================================================================
 
 print("[GunMod] LOADED v21")
@@ -19,6 +19,12 @@ local CONFIG = CONFIG or {
 
 local hooksInstalled = false
 local zeroVector = Vector3.new(0, 0, 0)
+local connections = {}
+local hookedFire = nil
+local hookedFireRequest = nil
+local hookedRecoil = nil
+
+local function track(c) table.insert(connections, c); return c end
 
 local function readRecoilOff()
     local v = CONFIG["Recoil"]
@@ -30,10 +36,9 @@ end
 local function installHooks(fc)
     if hooksInstalled or type(fc.Fire) ~= "function" then return end
 
-    -- 1. Hook Fire (Recoil, Spread, Block, Mag, Bullet Count)
-    local origFire = fc.Fire
+    -- 1. Hook Fire
+    hookedFire = fc.Fire
     fc.Fire = function(self, bulletIndex, traceData)
-        -- Bullet Count Override
         local bulletCount = tonumber(CONFIG["Bullets Per Shot"])
         local origCount
         if bulletCount and bulletCount > 1 and self.Stats and self.Stats.Bullet then
@@ -58,9 +63,8 @@ local function installHooks(fc)
             self.Stats.Bullet.BuckshotSpread = 0
         end
 
-        local ok, result = pcall(origFire, self, bulletIndex, traceData)
+        local ok, result = pcall(hookedFire, self, bulletIndex, traceData)
 
-        -- Restore
         if origCount ~= nil then self.Stats.Bullet.BulletFireCount = origCount end
         if CONFIG["Blockage Bypass"] then self.IsFirearmBlocked = origIsBlocked end
         if origAmmoLeft ~= nil and self.Firearm and not CONFIG["Inf Ammo"] then
@@ -71,40 +75,34 @@ local function installHooks(fc)
         return result
     end
 
-    -- 2. Hook FireRequest (Fix for Auto Guns shooting only 1 bullet)
+    -- 2. Hook FireRequest
     if type(fc.FireRequest) == "function" then
-        local origFireRequest = fc.FireRequest
+        hookedFireRequest = fc.FireRequest
         fc.FireRequest = function(self, ...)
             local bulletCount = tonumber(CONFIG["Bullets Per Shot"])
-            
-            -- If the gun is in Auto/SemiAuto mode, we force the game to use the Buckshot loop
             if bulletCount and bulletCount > 1 and self.FireModes then
                 local originalMode = self.FireMode
                 self.FireMode = self.FireModes.Buckshot
                 
-                -- We temporarily set the fire count stat so the game's loop processes it
                 local origCount = self.Stats.Bullet.BulletFireCount
                 self.Stats.Bullet.BulletFireCount = bulletCount
                 
-                -- Let the original FireRequest run (it will now fire X bullets because of Buckshot mode)
-                local res = origFireRequest(self, ...)
+                local res = hookedFireRequest(self, ...)
                 
-                -- Restore
                 self.FireMode = originalMode
                 self.Stats.Bullet.BulletFireCount = origCount
                 return res
             end
-            
-            return origFireRequest(self, ...)
+            return hookedFireRequest(self, ...)
         end
     end
 
-    -- 3. Hook GetPatternRecoil
+    -- 3. Hook Recoil
     if type(fc.GetPatternRecoil) == "function" then
-        local origRecoil = fc.GetPatternRecoil
+        hookedRecoil = fc.GetPatternRecoil
         fc.GetPatternRecoil = function(self, index, stats)
             if readRecoilOff() then return zeroVector end
-            return origRecoil(self, index, stats)
+            return hookedRecoil(self, index, stats)
         end
     end
 
@@ -127,16 +125,17 @@ local function findController()
     return nil
 end
 
-RunService.Heartbeat:Connect(function()
+-- Track heartbeat loops
+track(RunService.Heartbeat:Connect(function()
     if not hooksInstalled then
         local fc = findController()
         if fc then installHooks(fc) end
     end
-end)
+end))
 
 -- Infinite Ammo UI tracking
 local INF_AMMO_VALUE = 50000000
-RunService.Heartbeat:Connect(function()
+track(RunService.Heartbeat:Connect(function()
     if not CONFIG["Inf Ammo"] then return end
     local function process(t)
         if t:IsA("Tool") and t:GetAttribute("AmmoLeft") then
@@ -146,4 +145,42 @@ RunService.Heartbeat:Connect(function()
     local bp = LocalPlayer:FindFirstChild("Backpack")
     if bp then for _, t in ipairs(bp:GetChildren()) do process(t) end end
     if LocalPlayer.Character then for _, t in ipairs(LocalPlayer.Character:GetChildren()) do process(t) end end
-end)
+end))
+
+--// CLEANUP
+if cleanup then
+    cleanup(function()
+        -- 1. Disconnect all loops
+        for _, c in ipairs(connections) do
+            if c then pcall(function() c:Disconnect() end) end
+        end
+        connections = {}
+
+        -- 2. Restore the original functions
+        local fc = findController()
+        if fc then
+            if hookedFire then fc.Fire = hookedFire end
+            if hookedFireRequest then fc.FireRequest = hookedFireRequest end
+            if hookedRecoil then fc.GetPatternRecoil = hookedRecoil end
+        end
+
+        -- 3. Clear the UI text
+        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+        local mainUI = playerGui and playerGui:FindFirstChild("MainUI")
+        local weaponMgmt = mainUI and mainUI:FindFirstChild("WeaponManagement")
+        if weaponMgmt then
+            local primary = weaponMgmt:FindFirstChild("Primary")
+            local secondary = weaponMgmt:FindFirstChild("Secondary")
+            if primary then
+                local lbl = primary:FindFirstChild("CurrentAmmo")
+                if lbl then lbl.Text = "--" end
+            end
+            if secondary then
+                local lbl = secondary:FindFirstChild("CurrentAmmo")
+                if lbl then lbl.Text = "--" end
+            end
+        end
+
+        print("[GunMod] Cleaned up safely ✔")
+    end)
+end
