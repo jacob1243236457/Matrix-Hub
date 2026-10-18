@@ -1,41 +1,39 @@
---// DIAGNOSTIC SCRIPT — Melee Remote Test
+--// DIAGNOSTIC SCRIPT v2
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UIS = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
-print("=== STARTING MELEE REMOTE DIAGNOSTIC ===")
+print("=== STARTING MELEE DIAGNOSTIC V2 ===")
 
 -- 1. Find the remote
 local hitRemote = nil
+local allRemotes = {}
 for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-    if obj:IsA("RemoteEvent") and (obj.Name == "Hit" or obj.Name == "MeleeHit") then
-        if not string.find(obj:GetFullName(), "Firearm") then
-            hitRemote = obj
-            break
+    if obj:IsA("RemoteEvent") then
+        table.insert(allRemotes, obj.Name)
+        if obj.Name == "Hit" or obj.Name == "MeleeHit" then
+            if not string.find(obj:GetFullName(), "Firearm") then
+                hitRemote = obj
+            end
         end
     end
 end
 
 if not hitRemote then
-    warn("❌ DIAGNOSTIC FAILED: Could not find a Melee hit remote.")
+    warn("❌ FAILED: Could not find a Melee hit remote. Remotes found:", table.concat(allRemotes, ", "))
     return
 else
     print("✅ Found Remote:", hitRemote:GetFullName())
 end
 
--- 2. Hook the remote to see if the server sends a response back
-hitRemote.OnClientEvent:Connect(function(...)
-    print("📥 SERVER RESPONDED TO REMOTE:", ...)
-end)
-
--- 3. Find a target to test on
+-- 2. Find closest target
 local function getClosestTarget()
     local closest = nil
     local minDist = math.huge
-    local myPos = LocalPlayer.Character and LocalPlayer.Character.PrimaryPart and LocalPlayer.Character.PrimaryPart.Position
-    
-    if not myPos then return nil, 0 end
+    local myChar = LocalPlayer.Character
+    if not myChar or not myChar.PrimaryPart then return nil, 0 end
+    local myPos = myChar.PrimaryPart.Position
 
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character.PrimaryPart then
@@ -54,30 +52,42 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or fired then return end
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         fired = true
+        print("🖱️ CLICK DETECTED.")
         
         local target, dist = getClosestTarget()
         if not target then
-            warn("❌ DIAGNOSTIC FAILED: No target player found.")
+            warn("❌ FAILED: No target player found nearby.")
+            fired = false
             return
         end
         
-        print("🎯 Closest Target:", target.Name, "| Distance:", math.floor(dist), "studs")
+        print("🎯 Target:", target.Name, "| Distance:", math.floor(dist), "studs")
         
-        -- Test 1: Standard Melee Arguments
-        print("➡️ Firing Remote: (Character, 'HardHit')")
-        hitRemote:FireServer(target.Character, "HardHit")
-        task.wait(0.5)
+        -- Test 1
+        print("➡️ Firing (Character, 'HardHit')...")
+        local success1, err1 = pcall(function()
+            hitRemote:FireServer(target.Character, "HardHit")
+        end)
+        if not success1 then warn("❌ Error:", err1) end
+        task.wait(0.2)
         
-        -- Test 2: Just Character
-        print("➡️ Firing Remote: (Character)")
-        hitRemote:FireServer(target.Character)
-        task.wait(0.5)
+        -- Test 2
+        print("➡️ Firing (Character, 'Hit')...")
+        local success2, err2 = pcall(function()
+            hitRemote:FireServer(target.Character, "Hit")
+        end)
+        if not success2 then warn("❌ Error:", err2) end
+        task.wait(0.2)
         
-        -- Test 3: Player Object
-        print("➡️ Firing Remote: (Player)")
-        hitRemote:FireServer(target)
+        -- Test 3
+        print("➡️ Firing (Player)...")
+        local success3, err3 = pcall(function()
+            hitRemote:FireServer(target)
+        end)
+        if not success3 then warn("❌ Error:", err3) end
         
-        print("=== DIAGNOSTIC COMPLETE. DID THEY DIE? ===")
+        print("=== DIAGNOSTIC COMPLETE ===")
+        task.wait(2)
         fired = false
     end
 end)
