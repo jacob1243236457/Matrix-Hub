@@ -1,8 +1,8 @@
 --// =====================================================================
---// Smart Silent Aim v4 — Team Checks + KOS Tag Verification
+--// Silent Aim v5 — Smart Team Check + Infected Teammates
 --// =====================================================================
 
-print("[SilentAim] LOADED v4 (Smart Team Check)")
+print("[SilentAim] LOADED v5")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -43,7 +43,7 @@ local function isAimbotActive()
 end
 
 -- =====================================================================
--- SMART TEAM CHECK
+-- SMART TEAM CHECK (NOW WITH INFECTED CHECK)
 -- =====================================================================
 local function canTarget(player)
     local myTeam = LocalPlayer.Team
@@ -56,7 +56,12 @@ local function canTarget(player)
     -- 1. Exclude Choosing entirely
     if theirTeamName == "Choosing" then return false end
 
-    -- 2. Neutral Teams (Don't shoot team, shoot everyone else EXCEPT choosing)
+    -- 2. INFECTED CHECK (Target teammates if they are infected)
+    if player:GetAttribute("IsInfected") then
+        return true
+    end
+
+    -- 3. Neutral Teams
     if myTeamName == "Osiris Collective" then
         if theirTeamName == "Osiris Collective" then return false end
         return true
@@ -65,15 +70,13 @@ local function canTarget(player)
         return true
     end
 
-    -- 3. Facility Teams (FRU, BD, Centum, etc.)
+    -- 4. Facility Teams
     local isFacility = (myTeamName == "Facility Response Unit" or myTeamName == "Biohazard Containment Unit" or myTeamName == "Centum Security" or myTeamName == "Domestic Security Agency" or myTeamName == "Facility Oversight" or myTeamName == "Health & Research" or myTeamName == "Administrative Committee")
     
     if isFacility then
-        -- If they are also facility, don't shoot
         local theirIsFacility = (theirTeamName == "Facility Response Unit" or theirTeamName == "Biohazard Containment Unit" or theirTeamName == "Centum Security" or theirTeamName == "Domestic Security Agency" or theirTeamName == "Facility Oversight" or theirTeamName == "Health & Research" or theirTeamName == "Administrative Committee")
         if theirIsFacility then return false end
 
-        -- If they are Research Subject, check for KOS tag
         if theirTeamName == "Research Subject" then
             local char = player.Character
             if char then
@@ -82,14 +85,11 @@ local function canTarget(player)
                     local nameTag = head:FindFirstChild("NameTag")
                     if nameTag then
                         local kos = nameTag:FindFirstChild("KOS")
-                        -- Check if KOS exists and is visible
-                        if kos and kos.Visible then
-                            return true
-                        end
+                        if kos and kos.Visible then return true end
                     end
                 end
             end
-            return false -- If no KOS tag, don't shoot
+            return false
         end
     end
 
@@ -163,7 +163,7 @@ local function installHooks()
     end
     
     hooksInstalled = true
-    print("[SilentAim] Smart Hooks Installed ✔")
+    print("[SilentAim] Hooks Installed ✔")
 end
 
 RunService.Heartbeat:Connect(installHooks)
