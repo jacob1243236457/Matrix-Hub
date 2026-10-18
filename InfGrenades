@@ -1,0 +1,65 @@
+--// =====================================================================
+--// Infinite Grenades / Throwables
+--// =====================================================================
+
+print("[InfGrenades] LOADED")
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local CONFIG = CONFIG or {
+    ["Infinite Grenades"] = true,
+}
+
+local activeConnections = {}
+
+local function processTool(tool)
+    if not tool:IsA("Tool") then return end
+    
+    -- Check if it's a throwable (Grenade, Flashbang, Smoke, etc)
+    local isThrowable = tool:GetAttribute("IsThrowable") or tool:GetAttribute("IsGrenade") or string.find(string.lower(tool.Name), "grenade") or string.find(string.lower(tool.Name), "flash")
+    
+    if isThrowable then
+        -- Loop through common ammo attribute names
+        local ammoAttributes = {"Ammo", "AmmoLeft", "GrenadeCount", "Count"}
+        for _, attr in ipairs(ammoAttributes) do
+            if tool:GetAttribute(attr) ~= nil then
+                tool:SetAttribute(attr, 99) -- Set to a high number
+                
+                -- Keep resetting it in case the game tries to lower it
+                if not activeConnections[tool] then
+                    activeConnections[tool] = RunService.Heartbeat:Connect(function()
+                        if tool.Parent and tool:GetAttribute(attr) < 99 then
+                            tool:SetAttribute(attr, 99)
+                        end
+                    end)
+                end
+            end
+        end
+    end
+end
+
+local function setupCharacter(char)
+    char.ChildAdded:Connect(processTool)
+    for _, child in ipairs(char:GetChildren()) do
+        processTool(child)
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(setupCharacter)
+if LocalPlayer.Character then setupCharacter(LocalPlayer.Character) end
+
+LocalPlayer.Backpack.ChildAdded:Connect(processTool)
+for _, child in ipairs(LocalPlayer.Backpack:GetChildren()) do
+    processTool(child)
+end
+
+if cleanup then
+    cleanup(function()
+        for tool, conn in pairs(activeConnections) do
+            conn:Disconnect()
+        end
+        activeConnections = {}
+    end)
+end
