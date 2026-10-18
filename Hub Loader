@@ -71,7 +71,8 @@
           "Recoil": "false",
           "Spread": false,
           "Blockage Bypass": true,
-          "Infinite Mag": true
+          "Infinite Mag": true,
+          "Bullets Per Shot"": 3
         }
       },
       {
