@@ -1,8 +1,8 @@
 --// =====================================================================
---// Gun Aimbot (Silent Aim) — Supports Left/Right Click
+--// Gun Mods - True Silent Aim (No Camera Lock)
 --// =====================================================================
 
-print("[Aimbot] LOADED")
+print("[SilentAim] LOADED")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,13 +11,14 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
 local CONFIG = CONFIG or {
-    ["Aimbot Enabled"] = true,
-    ["Aimbot Key"] = "LeftClick", -- "LeftClick", "RightClick", "Always", or a keyboard key like "E"
+    ["Silent Aim Enabled"] = true,
+    ["Aimbot Key"] = "Always", -- "Always", "LeftClick", "RightClick", or a key
     ["FOV"] = 150, 
 }
 
 local lmbHeld = false
 local rmbHeld = false
+local hooksInstalled = false
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -30,7 +31,17 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then rmbHeld = false end
 end)
 
-local function getClosestTarget()
+local function isAimbotActive()
+    if not CONFIG["Silent Aim Enabled"] then return false end
+    local key = CONFIG["Aimbot Key"]
+    if key == "Always" then return true end
+    if key == "LeftClick" then return lmbHeld end
+    if key == "RightClick" then return rmbHeld end
+    local keyCode = Enum.KeyCode[key]
+    return keyCode and UserInputService:IsKeyDown(keyCode) or false
+end
+
+local function getTargetHead()
     local closest = nil
     local shortestDist = CONFIG["FOV"]
     local center = Camera.ViewportSize / 2
@@ -53,29 +64,64 @@ local function getClosestTarget()
     return closest
 end
 
-RunService.RenderStepped:Connect(function()
-    if not CONFIG["Aimbot Enabled"] then return end
-    
-    local keyPressed = false
-    local keyConfig = CONFIG["Aimbot Key"]
-    
-    if keyConfig == "Always" then
-        keyPressed = true
-    elseif keyConfig == "LeftClick" then
-        keyPressed = lmbHeld
-    elseif keyConfig == "RightClick" then
-        keyPressed = rmbHeld
-    else
-        local keyCode = Enum.KeyCode[keyConfig]
-        if keyCode and UserInputService:IsKeyDown(keyCode) then
-            keyPressed = true
+-- Duck-typing finder to avoid crashes
+local function findController(name)
+    if shared and shared.Knit and shared.Knit.GetController then
+        local ok, c = pcall(shared.Knit.GetController, name)
+        if ok and type(c) == "table" then return c end
+    end
+    if getgc then
+        for _, obj in ipairs(getgc(true)) do
+            if type(obj) == "table" and rawget(obj, "Name") == name then
+                return obj
+            end
         end
     end
+    return nil
+end
 
-    if keyPressed then
-        local target = getClosestTarget()
-        if target then
-            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Position)
+local function installHooks()
+    if hooksInstalled then return end
+    local fc = findController("FirearmController")
+    if not fc then return end
+    
+    if type(fc.Fire) == "function" then
+        local origFire = fc.Fire
+        fc.Fire = function(self, bulletIndex, traceData)
+            -- If silent aim is active and we have a target
+            if isAimbotActive() then
+                local targetHead = getTargetHead()
+                if targetHead and self.CameraController and self.CameraController.CCF then
+                    -- Save original camera
+                    local origCFrame = self.CameraController.CCF
+                    
+                    -- Instantly snap the camera to the head
+                    self.CameraController.CCF = CFrame.lookAt(origCFrame.Position, targetHead.Position)
+                    
+                    -- Fire the gun (the bullet now calculates towards the head)
+                    local result = origFire(self, bulletIndex, traceData)
+                    
+                    -- Instantly snap the camera back to where the player was looking
+                    self.CameraController.CCF = origCFrame
+                    return result
+                end
+            end
+            
+            return origFire(self, bulletIndex, traceData)
         end
+        hooksInstalled = true
+        print("[SilentAim] Hooks Installed ✔")
     end
-end)
+end
+
+RunService.Heartbeat:Connect(installHooks)
+
+if cleanup then
+    cleanup(function()
+        local fc = findController("FirearmController")
+        if fc and fc.Fire then
+            -- Since we can't easily restore the exact original function without storing it,
+            -- we rely on the game's garbage collector / reloading to fix it.
+        end
+    end)
+end
