@@ -1,8 +1,8 @@
 --// =====================================================================
---// Gun Mods v22 — Auto-Fire + Multi-Bullet
+--// Gun Mods v23 — True Auto Multi-Bullet
 --// =====================================================================
 
-print("[GunMod] LOADED v22")
+print("[GunMod] LOADED v23")
 
 local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -34,21 +34,35 @@ local function installHooks(fc)
     fc.Fire = function(self, bulletIndex, traceData)
         local bulletCount = tonumber(CONFIG["Bullets Per Shot"])
         
-        -- If we want multi-bullets and the gun is NOT already doing it
         if bulletCount and bulletCount > 1 and self.FireModes and self.Stats and self.Stats.Bullet then
+            -- 1. Inject "Buckshot" into the gun's allowed FireModes temporarily
+            local originalModes = self.FireModes
+            local hasBuckshot = false
+            for _, mode in pairs(originalModes) do
+                if mode == "Buckshot" then hasBuckshot = true break end
+            end
+            
+            if not hasBuckshot then
+                local newModes = {}
+                for _, mode in pairs(originalModes) do table.insert(newModes, mode) end
+                table.insert(newModes, "Buckshot")
+                self.FireModes = newModes
+            end
+
+            -- 2. Save original state and force Buckshot
             local originalMode = self.FireMode
             local originalCount = self.Stats.Bullet.BulletFireCount
             
-            -- Temporarily force Buckshot and change the bullet count
             self.FireMode = self.FireModes.Buckshot
             self.Stats.Bullet.BulletFireCount = bulletCount
 
-            -- Let the original Fire function run
+            -- 3. Fire
             local ok, result = pcall(origFire, self, bulletIndex, traceData)
 
-            -- Restore immediately so Auto-fire loop continues
+            -- 4. Restore everything instantly so Auto-loop continues
             self.FireMode = originalMode
             self.Stats.Bullet.BulletFireCount = originalCount
+            if not hasBuckshot then self.FireModes = originalModes end
             
             return result
         end
@@ -56,7 +70,7 @@ local function installHooks(fc)
         return origFire(self, bulletIndex, traceData)
     end
 
-    -- Hook FireRequest just for the Blockage, Recoil, Spread, etc.
+    -- Hook FireRequest (Blockage, Spread)
     if type(fc.FireRequest) == "function" then
         local origFireRequest = fc.FireRequest
         fc.FireRequest = function(self, ...)
@@ -90,7 +104,7 @@ local function installHooks(fc)
     end
 
     hooksInstalled = true
-    print("[GunMod] v22 Multi-Bullet Hooks Installed ✔")
+    print("[GunMod] v23 Multi-Bullet Hooks Installed ✔")
 end
 
 local function findController()
