@@ -1,11 +1,12 @@
 --// =====================================================================
---// Gun Mods v24 — Auto Multi-Bullet (No Buckshot Hack)
+--// Gun Mods v25 — Auto Shotgun Loop (Buckshot + Auto)
 --// =====================================================================
 
-print("[GunMod] LOADED v24")
+print("[GunMod] LOADED v25")
 
 local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UIS        = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local CONFIG = CONFIG or {
@@ -19,6 +20,16 @@ local CONFIG = CONFIG or {
 
 local hooksInstalled = false
 local zeroVector = Vector3.new(0, 0, 0)
+local mouseHeld = false
+
+-- Track if the player is holding the trigger
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then mouseHeld = true end
+end)
+UIS.InputEnded:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.UserInputType == Enum.UserInputType.MouseButton1 then mouseHeld = false end
+end)
 
 local function readRecoilOff()
     local v = CONFIG["Recoil"]
@@ -28,44 +39,65 @@ local function readRecoilOff()
 end
 
 local function installHooks(fc)
-    if hooksInstalled or type(fc.Fire) ~= "function" then return end
+    if hooksInstalled or type(fc.FireRequest) ~= "function" then return end
 
-    -- 1. Hook FireRequest to multiply bullets on Auto/Semi
-    if type(fc.FireRequest) == "function" then
-        local origFireRequest = fc.FireRequest
-        fc.FireRequest = function(self, ...)
-            local bulletCount = tonumber(CONFIG["Bullets Per Shot"]) or 1
-            
-            -- If it's a multi-bullet shot and we aren't already processing it
-            if bulletCount > 1 and not self._multiBulletCooldown then
-                -- Set a flag so we don't infinitely recurse
-                self._multiBulletCooldown = true
-                
-                -- Fire the first bullet normally (this handles animations/sounds)
-                local success, err = pcall(origFireRequest, self, ...)
-                
-                -- Fire the remaining bullets instantly
-                for i = 2, bulletCount do
-                    task.spawn(function()
-                        pcall(function()
-                            self:Fire()
-                        end)
-                    end)
-                end
-                
-                -- Reset the cooldown after a tiny delay
-                task.delay(0.01, function()
-                    self._multiBulletCooldown = nil
-                end)
-                
-                return
+    local origFireRequest = fc.FireRequest
+    fc.FireRequest = function(self, ...)
+        local bulletCount = tonumber(CONFIG["Bullets Per Shot"]) or 1
+
+        -- If we want multi-bullets
+        if bulletCount > 1 and self.FireModes and self.Stats and self.Stats.Bullet then
+            if self._multiBulletActive then return end
+            self._multiBulletActive = true
+
+            -- 1. Inject Buckshot into allowed FireModes if it isn't there
+            local originalModes = self.FireModes
+            local hasBuckshot = false
+            for _, mode in pairs(originalModes) do
+                if mode == "Buckshot" then hasBuckshot = true break end
             end
+            if not hasBuckshot then
+                local newModes = {}
+                for _, mode in pairs(originalModes) do table.insert(newModes, mode) end
+                table.insert(newModes, "Buckshot")
+                self.FireModes = newModes
+            end
+
+            -- 2. Swap to Buckshot and fire
+            local originalMode = self.FireMode
+            local originalCount = self.Stats.Bullet.BulletFireCount
             
-            return origFireRequest(self, ...)
+            self.FireMode = self.FireModes.Buckshot
+            self.Stats.Bullet.BulletFireCount = bulletCount
+
+            -- This fires the whole burst
+            pcall(origFireRequest, self, ...)
+
+            -- 3. Restore immediately
+            self.FireMode = originalMode
+            self.Stats.Bullet.BulletFireCount = originalCount
+            if not hasBuckshot then self.FireModes = originalModes end
+
+            -- 4. If the mouse is still held down, loop the shot
+            if mouseHeld and self.Stats.Bullet and self.Stats.Bullet.RPM then
+                local rpm = self.Stats.Bullet.RPM
+                task.spawn(function()
+                    task.wait(60 / rpm)
+                    self._multiBulletActive = false
+                    if mouseHeld then
+                        self:FireRequest()
+                    end
+                end)
+            else
+                self._multiBulletActive = false
+            end
+            return
         end
+
+        return origFireRequest(self, ...)
     end
 
-    -- 2. Hook Fire (Recoil, Spread, Blockage, Ammo)
+    -- Hook Fire for Recoil, Blockage, etc.
     local origFire = fc.Fire
     fc.Fire = function(self, bulletIndex, traceData)
         local origIsBlocked = self.IsFirearmBlocked
@@ -92,11 +124,10 @@ local function installHooks(fc)
             self.Firearm:SetAttribute("AmmoLeft", math.max(0, origAmmoLeft - 1))
         end
         if origBuckSpread then self.Stats.Bullet.BuckshotSpread = origBuckSpread end
-
         return result
     end
 
-    -- 3. Hook Recoil
+    -- Hook Recoil
     if type(fc.GetPatternRecoil) == "function" then
         local origRecoil = fc.GetPatternRecoil
         fc.GetPatternRecoil = function(self, index, stats)
@@ -106,7 +137,7 @@ local function installHooks(fc)
     end
 
     hooksInstalled = true
-    print("[GunMod] v24 Auto Multi-Bullet Installed ✔")
+    print("[GunMod] v25 Auto Shotgun Hooks Installed ✔")
 end
 
 local function findController()
