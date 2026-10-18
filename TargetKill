@@ -1,5 +1,5 @@
 --// =====================================================================
---// Server-Sided Target Remote — Spams One or Everyone
+--// Server-Sided Target Remote v2 — Melee Specific
 --// =====================================================================
 
 local Players = game:GetService("Players")
@@ -14,20 +14,37 @@ local CONFIG = CONFIG or {
 
 print("[TargetRemote] LOADED. Target:", (CONFIG["Target User"] == "" and "Everyone" or CONFIG["Target User"]))
 
--- Find the hit remote
+-- Find the MELEE hit remote specifically
 local hitRemote = nil
 for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-    if obj:IsA("RemoteEvent") and (obj.Name == "Hit" or obj.Name == "ReplicateHit" or obj.Name == "MeleeHit") then
-        hitRemote = obj
-        print("[TargetRemote] Found Hit Remote:", hitRemote:GetFullName())
-        break
+    if obj:IsA("RemoteEvent") then
+        -- Look for Knit MeleeService or standard Hit names
+        if string.find(obj:GetFullName(), "MeleeService") and obj.Name == "Hit" then
+            hitRemote = obj
+            break
+        elseif obj.Name == "MeleeHit" or obj.Name == "HitMelee" then
+            hitRemote = obj
+            break
+        end
+    end
+end
+
+-- Fallback if MeleeService is named differently
+if not hitRemote then
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") and obj.Name == "Hit" and not string.find(obj:GetFullName(), "Firearm") then
+            hitRemote = obj
+            break
+        end
     end
 end
 
 if not hitRemote then
-    warn("[TargetRemote] Could not find melee hit remote.")
+    warn("[TargetRemote] Could not find MELEE hit remote.")
     return
 end
+
+print("[TargetRemote] Found Melee Remote:", hitRemote:GetFullName())
 
 local mouseHeld = false
 
@@ -48,31 +65,27 @@ RunService.Heartbeat:Connect(function()
     if mouseHeld then
         local targetName = CONFIG["Target User"]
         
-        -- If a target name is set, ONLY hit them
-        if targetName and targetName ~= "" then
-            local targetPlayer = Players:FindFirstChild(targetName)
-            if targetPlayer and targetPlayer.Character then
-                task.spawn(function()
-                    pcall(function()
-                        hitRemote:FireServer(targetPlayer.Character, "HardHit")
-                        hitRemote:FireServer(targetPlayer.Character, "Hit")
-                        hitRemote:FireServer(targetPlayer.Character)
-                        hitRemote:FireServer(targetPlayer)
-                    end)
+        local function fireAt(targetPlayer)
+            if not targetPlayer or not targetPlayer.Character then return end
+            task.spawn(function()
+                pcall(function()
+                    -- Try common Melee arguments
+                    hitRemote:FireServer(targetPlayer.Character, "HardHit")
+                    hitRemote:FireServer(targetPlayer.Character, "Hit")
+                    hitRemote:FireServer(targetPlayer.Character)
                 end)
-            end
+            end)
+        end
+
+        if targetName and targetName ~= "" then
+            -- Target specific user
+            local targetPlayer = Players:FindFirstChild(targetName)
+            if targetPlayer then fireAt(targetPlayer) end
         else
-            -- If blank, hit EVERYONE
+            -- Target everyone
             for _, targetPlayer in ipairs(Players:GetPlayers()) do
-                if targetPlayer ~= LocalPlayer and targetPlayer.Character then
-                    task.spawn(function()
-                        pcall(function()
-                            hitRemote:FireServer(targetPlayer.Character, "HardHit")
-                            hitRemote:FireServer(targetPlayer.Character, "Hit")
-                            hitRemote:FireServer(targetPlayer.Character)
-                            hitRemote:FireServer(targetPlayer)
-                        end)
-                    end)
+                if targetPlayer ~= LocalPlayer then
+                    fireAt(targetPlayer)
                 end
             end
         end
