@@ -1,5 +1,5 @@
 --// =====================================================================
---// Server-Sided Target Remote — Fires Raw Hits
+--// Server-Sided Target Remote — Spams One or Everyone
 --// =====================================================================
 
 local Players = game:GetService("Players")
@@ -12,7 +12,7 @@ local CONFIG = CONFIG or {
     ["Target User"] = "",
 }
 
-print("[TargetRemote] LOADED. Target:", CONFIG["Target User"])
+print("[TargetRemote] LOADED. Target:", (CONFIG["Target User"] == "" and "Everyone" or CONFIG["Target User"]))
 
 -- Find the hit remote
 local hitRemote = nil
@@ -47,17 +47,33 @@ end)
 RunService.Heartbeat:Connect(function()
     if mouseHeld then
         local targetName = CONFIG["Target User"]
+        
+        -- If a target name is set, ONLY hit them
         if targetName and targetName ~= "" then
             local targetPlayer = Players:FindFirstChild(targetName)
             if targetPlayer and targetPlayer.Character then
-                -- Fire the remote as fast as possible
                 task.spawn(function()
                     pcall(function()
-                        -- We try different damage keys to ensure the server registers it
                         hitRemote:FireServer(targetPlayer.Character, "HardHit")
                         hitRemote:FireServer(targetPlayer.Character, "Hit")
+                        hitRemote:FireServer(targetPlayer.Character)
+                        hitRemote:FireServer(targetPlayer)
                     end)
                 end)
+            end
+        else
+            -- If blank, hit EVERYONE
+            for _, targetPlayer in ipairs(Players:GetPlayers()) do
+                if targetPlayer ~= LocalPlayer and targetPlayer.Character then
+                    task.spawn(function()
+                        pcall(function()
+                            hitRemote:FireServer(targetPlayer.Character, "HardHit")
+                            hitRemote:FireServer(targetPlayer.Character, "Hit")
+                            hitRemote:FireServer(targetPlayer.Character)
+                            hitRemote:FireServer(targetPlayer)
+                        end)
+                    end)
+                end
             end
         end
         task.wait(0.05) -- Spam rate
