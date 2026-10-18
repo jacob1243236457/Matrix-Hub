@@ -1,38 +1,16 @@
---// =====================================================================
---// Server-Sided Target Remote v2 — Melee Specific
---// =====================================================================
-
+--// DIAGNOSTIC SCRIPT — Melee Remote Test
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
-local CONFIG = CONFIG or {
-    ["Target User"] = "",
-}
+print("=== STARTING MELEE REMOTE DIAGNOSTIC ===")
 
-print("[TargetRemote] LOADED. Target:", (CONFIG["Target User"] == "" and "Everyone" or CONFIG["Target User"]))
-
--- Find the MELEE hit remote specifically
+-- 1. Find the remote
 local hitRemote = nil
 for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-    if obj:IsA("RemoteEvent") then
-        -- Look for Knit MeleeService or standard Hit names
-        if string.find(obj:GetFullName(), "MeleeService") and obj.Name == "Hit" then
-            hitRemote = obj
-            break
-        elseif obj.Name == "MeleeHit" or obj.Name == "HitMelee" then
-            hitRemote = obj
-            break
-        end
-    end
-end
-
--- Fallback if MeleeService is named differently
-if not hitRemote then
-    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-        if obj:IsA("RemoteEvent") and obj.Name == "Hit" and not string.find(obj:GetFullName(), "Firearm") then
+    if obj:IsA("RemoteEvent") and (obj.Name == "Hit" or obj.Name == "MeleeHit") then
+        if not string.find(obj:GetFullName(), "Firearm") then
             hitRemote = obj
             break
         end
@@ -40,55 +18,66 @@ if not hitRemote then
 end
 
 if not hitRemote then
-    warn("[TargetRemote] Could not find MELEE hit remote.")
+    warn("❌ DIAGNOSTIC FAILED: Could not find a Melee hit remote.")
     return
+else
+    print("✅ Found Remote:", hitRemote:GetFullName())
 end
 
-print("[TargetRemote] Found Melee Remote:", hitRemote:GetFullName())
-
-local mouseHeld = false
-
-UIS.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        mouseHeld = true
-    end
+-- 2. Hook the remote to see if the server sends a response back
+hitRemote.OnClientEvent:Connect(function(...)
+    print("📥 SERVER RESPONDED TO REMOTE:", ...)
 end)
 
-UIS.InputEnded:Connect(function(input, gameProcessed)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        mouseHeld = false
-    end
-end)
+-- 3. Find a target to test on
+local function getClosestTarget()
+    local closest = nil
+    local minDist = math.huge
+    local myPos = LocalPlayer.Character and LocalPlayer.Character.PrimaryPart and LocalPlayer.Character.PrimaryPart.Position
+    
+    if not myPos then return nil, 0 end
 
-RunService.Heartbeat:Connect(function()
-    if mouseHeld then
-        local targetName = CONFIG["Target User"]
-        
-        local function fireAt(targetPlayer)
-            if not targetPlayer or not targetPlayer.Character then return end
-            task.spawn(function()
-                pcall(function()
-                    -- Try common Melee arguments
-                    hitRemote:FireServer(targetPlayer.Character, "HardHit")
-                    hitRemote:FireServer(targetPlayer.Character, "Hit")
-                    hitRemote:FireServer(targetPlayer.Character)
-                end)
-            end)
-        end
-
-        if targetName and targetName ~= "" then
-            -- Target specific user
-            local targetPlayer = Players:FindFirstChild(targetName)
-            if targetPlayer then fireAt(targetPlayer) end
-        else
-            -- Target everyone
-            for _, targetPlayer in ipairs(Players:GetPlayers()) do
-                if targetPlayer ~= LocalPlayer then
-                    fireAt(targetPlayer)
-                end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character.PrimaryPart then
+            local dist = (p.Character.PrimaryPart.Position - myPos).Magnitude
+            if dist < minDist then
+                minDist = dist
+                closest = p
             end
         end
-        task.wait(0.05) -- Spam rate
+    end
+    return closest, minDist
+end
+
+local fired = false
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or fired then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        fired = true
+        
+        local target, dist = getClosestTarget()
+        if not target then
+            warn("❌ DIAGNOSTIC FAILED: No target player found.")
+            return
+        end
+        
+        print("🎯 Closest Target:", target.Name, "| Distance:", math.floor(dist), "studs")
+        
+        -- Test 1: Standard Melee Arguments
+        print("➡️ Firing Remote: (Character, 'HardHit')")
+        hitRemote:FireServer(target.Character, "HardHit")
+        task.wait(0.5)
+        
+        -- Test 2: Just Character
+        print("➡️ Firing Remote: (Character)")
+        hitRemote:FireServer(target.Character)
+        task.wait(0.5)
+        
+        -- Test 3: Player Object
+        print("➡️ Firing Remote: (Player)")
+        hitRemote:FireServer(target)
+        
+        print("=== DIAGNOSTIC COMPLETE. DID THEY DIE? ===")
+        fired = false
     end
 end)
