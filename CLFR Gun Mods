@@ -1,8 +1,8 @@
 --// =====================================================================
---// Gun Mods v20 — Multi-Bullet (Shoots 50 bullets per click)
+--// Gun Mods v21 — Fixed Multi-Bullet (Works on Auto & Semi)
 --// =====================================================================
 
-print("[GunMod] LOADED v20")
+print("[GunMod] LOADED v21")
 
 local Players    = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -14,7 +14,7 @@ local CONFIG = CONFIG or {
     ["Spread"]            = false,
     ["Blockage Bypass"]   = true,
     ["Infinite Mag"]      = true,
-    ["Bullets Per Shot"]  = 15, -- Set this to how many bullets you want per click
+    ["Bullets Per Shot"]  = 3, 
 }
 
 local hooksInstalled = false
@@ -30,63 +30,72 @@ end
 local function installHooks(fc)
     if hooksInstalled or type(fc.Fire) ~= "function" then return end
 
-    -- 1. Hook FireRequest (Multi-Bullet)
+    -- 1. Hook Fire (Recoil, Spread, Block, Mag, Bullet Count)
+    local origFire = fc.Fire
+    fc.Fire = function(self, bulletIndex, traceData)
+        -- Bullet Count Override
+        local bulletCount = tonumber(CONFIG["Bullets Per Shot"])
+        local origCount
+        if bulletCount and bulletCount > 1 and self.Stats and self.Stats.Bullet then
+            origCount = self.Stats.Bullet.BulletFireCount
+            self.Stats.Bullet.BulletFireCount = bulletCount
+        end
+
+        local origIsBlocked = self.IsFirearmBlocked
+        if CONFIG["Blockage Bypass"] then
+            self.IsFirearmBlocked = function() return false end
+            self.LastBlockUpdateResult = false
+        end
+
+        local origAmmoLeft
+        if CONFIG["Infinite Mag"] and self.Firearm then
+            origAmmoLeft = self.Firearm:GetAttribute("AmmoLeft")
+        end
+
+        local origBuckSpread
+        if not CONFIG["Spread"] and self.Stats and self.Stats.Bullet then
+            origBuckSpread = self.Stats.Bullet.BuckshotSpread
+            self.Stats.Bullet.BuckshotSpread = 0
+        end
+
+        local ok, result = pcall(origFire, self, bulletIndex, traceData)
+
+        -- Restore
+        if origCount ~= nil then self.Stats.Bullet.BulletFireCount = origCount end
+        if CONFIG["Blockage Bypass"] then self.IsFirearmBlocked = origIsBlocked end
+        if origAmmoLeft ~= nil and self.Firearm and not CONFIG["Inf Ammo"] then
+            self.Firearm:SetAttribute("AmmoLeft", math.max(0, origAmmoLeft - 1))
+        end
+        if origBuckSpread then self.Stats.Bullet.BuckshotSpread = origBuckSpread end
+
+        return result
+    end
+
+    -- 2. Hook FireRequest (Fix for Auto Guns shooting only 1 bullet)
     if type(fc.FireRequest) == "function" then
         local origFireRequest = fc.FireRequest
         fc.FireRequest = function(self, ...)
-            local bulletCount = tonumber(CONFIG["Bullets Per Shot"]) or 1
+            local bulletCount = tonumber(CONFIG["Bullets Per Shot"])
             
-            if bulletCount > 1 and self.FireModes then
-                -- Force the gun to act like a shotgun
+            -- If the gun is in Auto/SemiAuto mode, we force the game to use the Buckshot loop
+            if bulletCount and bulletCount > 1 and self.FireModes then
                 local originalMode = self.FireMode
                 self.FireMode = self.FireModes.Buckshot
                 
-                -- Loop through and fire
-                local v170 = nil
-                for i = 1, bulletCount do
-                    local res = self:Fire(i, v170)
-                    if res then v170 = res end
-                end
+                -- We temporarily set the fire count stat so the game's loop processes it
+                local origCount = self.Stats.Bullet.BulletFireCount
+                self.Stats.Bullet.BulletFireCount = bulletCount
                 
-                -- Restore the gun's original fire mode
+                -- Let the original FireRequest run (it will now fire X bullets because of Buckshot mode)
+                local res = origFireRequest(self, ...)
+                
+                -- Restore
                 self.FireMode = originalMode
-                return
+                self.Stats.Bullet.BulletFireCount = origCount
+                return res
             end
             
             return origFireRequest(self, ...)
-        end
-    end
-
-    -- 2. Hook Fire (Recoil, Spread, Block, Mag)
-    if type(fc.Fire) == "function" then
-        local origFire = fc.Fire
-        fc.Fire = function(self, bulletIndex, traceData)
-            local origIsBlocked = self.IsFirearmBlocked
-            if CONFIG["Blockage Bypass"] then
-                self.IsFirearmBlocked = function() return false end
-                self.LastBlockUpdateResult = false
-            end
-
-            local origAmmoLeft
-            if CONFIG["Infinite Mag"] and self.Firearm then
-                origAmmoLeft = self.Firearm:GetAttribute("AmmoLeft")
-            end
-
-            local origBuckSpread
-            if not CONFIG["Spread"] and self.Stats and self.Stats.Bullet then
-                origBuckSpread = self.Stats.Bullet.BuckshotSpread
-                self.Stats.Bullet.BuckshotSpread = 0 -- Zero spread so all bullets hit the same spot
-            end
-
-            local ok, result = pcall(origFire, self, bulletIndex, traceData)
-
-            if CONFIG["Blockage Bypass"] then self.IsFirearmBlocked = origIsBlocked end
-            if origAmmoLeft ~= nil and self.Firearm and not CONFIG["Inf Ammo"] then
-                self.Firearm:SetAttribute("AmmoLeft", math.max(0, origAmmoLeft - 1))
-            end
-            if origBuckSpread then self.Stats.Bullet.BuckshotSpread = origBuckSpread end
-
-            return result
         end
     end
 
