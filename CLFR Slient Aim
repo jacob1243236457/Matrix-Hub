@@ -1,8 +1,8 @@
 --// =====================================================================
---// True Silent Aim v3 — Bullet Redirect
+--// Smart Silent Aim v4 — Team Checks + KOS Tag Verification
 --// =====================================================================
 
-print("[SilentAim] LOADED v3")
+print("[SilentAim] LOADED v4 (Smart Team Check)")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -19,7 +19,6 @@ local CONFIG = CONFIG or {
 local lmbHeld = false
 local rmbHeld = false
 local hooksInstalled = false
-local originalRaycast = nil
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
@@ -43,6 +42,63 @@ local function isAimbotActive()
     return keyCode and UserInputService:IsKeyDown(keyCode) or false
 end
 
+-- =====================================================================
+-- SMART TEAM CHECK
+-- =====================================================================
+local function canTarget(player)
+    local myTeam = LocalPlayer.Team
+    local theirTeam = player.Team
+    if not myTeam or not theirTeam then return false end
+
+    local myTeamName = myTeam.Name
+    local theirTeamName = theirTeam.Name
+
+    -- 1. Exclude Choosing entirely
+    if theirTeamName == "Choosing" then return false end
+
+    -- 2. Neutral Teams (Don't shoot team, shoot everyone else EXCEPT choosing)
+    if myTeamName == "Osiris Collective" then
+        if theirTeamName == "Osiris Collective" then return false end
+        return true
+    elseif myTeamName == "Research Subject" then
+        if theirTeamName == "Research Subject" then return false end
+        return true
+    end
+
+    -- 3. Facility Teams (FRU, BD, Centum, etc.)
+    local isFacility = (myTeamName == "Facility Response Unit" or myTeamName == "Biohazard Containment Unit" or myTeamName == "Centum Security" or myTeamName == "Domestic Security Agency" or myTeamName == "Facility Oversight" or myTeamName == "Health & Research" or myTeamName == "Administrative Committee")
+    
+    if isFacility then
+        -- If they are also facility, don't shoot
+        local theirIsFacility = (theirTeamName == "Facility Response Unit" or theirTeamName == "Biohazard Containment Unit" or theirTeamName == "Centum Security" or theirTeamName == "Domestic Security Agency" or theirTeamName == "Facility Oversight" or theirTeamName == "Health & Research" or theirTeamName == "Administrative Committee")
+        if theirIsFacility then return false end
+
+        -- If they are Research Subject, check for KOS tag
+        if theirTeamName == "Research Subject" then
+            local char = player.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                if head then
+                    local nameTag = head:FindFirstChild("NameTag")
+                    if nameTag then
+                        local kos = nameTag:FindFirstChild("KOS")
+                        -- Check if KOS exists and is visible
+                        if kos and kos.Visible then
+                            return true
+                        end
+                    end
+                end
+            end
+            return false -- If no KOS tag, don't shoot
+        end
+    end
+
+    return false
+end
+
+-- =====================================================================
+-- TARGETING
+-- =====================================================================
 local function getTargetHead()
     local closest = nil
     local shortestDist = CONFIG["FOV"]
@@ -50,14 +106,16 @@ local function getTargetHead()
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
-            local head = player.Character:FindFirstChild("Head")
-            if head then
-                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
-                if onScreen then
-                    local distToCenter = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                    if distToCenter < shortestDist then
-                        shortestDist = distToCenter
-                        closest = head
+            if canTarget(player) then
+                local head = player.Character:FindFirstChild("Head")
+                if head then
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    if onScreen then
+                        local distToCenter = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                        if distToCenter < shortestDist then
+                            shortestDist = distToCenter
+                            closest = head
+                        end
                     end
                 end
             end
@@ -91,17 +149,11 @@ local function installHooks()
         if isAimbotActive() then
             local targetHead = getTargetHead()
             if targetHead and self.CameraController then
-                -- 1. Save the current camera look position
                 local origCFrame = self.CameraController.CCF
-                
-                -- 2. Aim the camera at the head (just for the raycast calculation)
                 local newCFrame = CFrame.lookAt(origCFrame.Position, targetHead.Position)
                 self.CameraController.CCF = newCFrame
                 
-                -- 3. Run the original Fire function (the game now calculates the bullet to the head)
                 local ok, result = pcall(origFire, self, bulletIndex, traceData)
-                
-                -- 4. Instantly snap the camera back
                 self.CameraController.CCF = origCFrame
                 
                 if ok then return result end
@@ -111,17 +163,7 @@ local function installHooks()
     end
     
     hooksInstalled = true
-    print("[SilentAim] Hooks Installed ✔")
+    print("[SilentAim] Smart Hooks Installed ✔")
 end
 
--- Wait until the game loads the controller
 RunService.Heartbeat:Connect(installHooks)
-
--- Cleanup on eject
-if cleanup then
-    cleanup(function()
-        print("[SilentAim] Ejecting...")
-        -- The game will reload the controller if you rejoin, 
-        -- but we can try to unhook here if necessary.
-    end)
-end
