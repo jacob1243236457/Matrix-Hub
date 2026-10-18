@@ -1,8 +1,8 @@
 --// =====================================================================
---// Gun Mods - True Silent Aim (No Camera Lock)
+--// Gun Mods - True Silent Aim v2 (Barrel Aim)
 --// =====================================================================
 
-print("[SilentAim] LOADED")
+print("[SilentAim] LOADED v2")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -12,7 +12,7 @@ local Camera = workspace.CurrentCamera
 
 local CONFIG = CONFIG or {
     ["Silent Aim Enabled"] = true,
-    ["Aimbot Key"] = "Always", -- "Always", "LeftClick", "RightClick", or a key
+    ["Aimbot Key"] = "Always", 
     ["FOV"] = 150, 
 }
 
@@ -64,7 +64,6 @@ local function getTargetHead()
     return closest
 end
 
--- Duck-typing finder to avoid crashes
 local function findController(name)
     if shared and shared.Knit and shared.Knit.GetController then
         local ok, c = pcall(shared.Knit.GetController, name)
@@ -83,45 +82,33 @@ end
 local function installHooks()
     if hooksInstalled then return end
     local fc = findController("FirearmController")
-    if not fc then return end
+    if not fc or type(fc.Fire) ~= "function" then return end
     
-    if type(fc.Fire) == "function" then
-        local origFire = fc.Fire
-        fc.Fire = function(self, bulletIndex, traceData)
-            -- If silent aim is active and we have a target
-            if isAimbotActive() then
-                local targetHead = getTargetHead()
-                if targetHead and self.CameraController and self.CameraController.CCF then
-                    -- Save original camera
-                    local origCFrame = self.CameraController.CCF
-                    
-                    -- Instantly snap the camera to the head
-                    self.CameraController.CCF = CFrame.lookAt(origCFrame.Position, targetHead.Position)
-                    
-                    -- Fire the gun (the bullet now calculates towards the head)
-                    local result = origFire(self, bulletIndex, traceData)
-                    
-                    -- Instantly snap the camera back to where the player was looking
-                    self.CameraController.CCF = origCFrame
-                    return result
+    local origFire = fc.Fire
+    fc.Fire = function(self, bulletIndex, traceData)
+        if isAimbotActive() then
+            local targetHead = getTargetHead()
+            if targetHead then
+                -- We hook the Caster directly for one shot
+                local origCasterFire = self.Caster.Fire
+                self.Caster.Fire = function(casterSelf, origin, direction, velocity, behavior, ...)
+                    -- Override the direction to point exactly at the head
+                    local newDirection = (targetHead.Position - origin).Unit
+                    return origCasterFire(casterSelf, origin, newDirection, velocity, behavior, ...)
                 end
+                
+                -- Fire the gun (the bullet now goes exactly to the head)
+                local result = origFire(self, bulletIndex, traceData)
+                
+                -- Restore the Caster
+                self.Caster.Fire = origCasterFire
+                return result
             end
-            
-            return origFire(self, bulletIndex, traceData)
         end
-        hooksInstalled = true
-        print("[SilentAim] Hooks Installed ✔")
+        return origFire(self, bulletIndex, traceData)
     end
+    hooksInstalled = true
+    print("[SilentAim] True Barrel Hooks Installed ✔")
 end
 
 RunService.Heartbeat:Connect(installHooks)
-
-if cleanup then
-    cleanup(function()
-        local fc = findController("FirearmController")
-        if fc and fc.Fire then
-            -- Since we can't easily restore the exact original function without storing it,
-            -- we rely on the game's garbage collector / reloading to fix it.
-        end
-    end)
-end
