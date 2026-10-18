@@ -1,0 +1,84 @@
+--// =====================================================================
+--// Gun Aimbot (Silent Aim)
+--// =====================================================================
+
+print("[Aimbot] LOADED")
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local CONFIG = CONFIG or {
+    ["Aimbot Enabled"] = true,
+    ["Aimbot Key"] = "E", -- Hold E to aimbot, or set to "Always" to always aimbot
+    ["FOV"] = 150, -- Max distance from crosshair to snap
+}
+
+local aimbotActive = false
+local hooksInstalled = false
+
+-- Find the controller safely
+local function findController(name)
+    if shared and shared.Knit and shared.Knit.GetController then
+        local ok, c = pcall(shared.Knit.GetController, name)
+        if ok and type(c) == "table" then return c end
+    end
+    if getgc then
+        for _, obj in ipairs(getgc(true)) do
+            if type(obj) == "table" and rawget(obj, "Name") == name then
+                return obj
+            end
+        end
+    end
+    return nil
+end
+
+-- Get the closest player to the center of the screen
+local function getClosestTarget()
+    local closest = nil
+    local shortestDist = CONFIG["FOV"]
+    local center = Camera.ViewportSize / 2
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            if head then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local distToCenter = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if distToCenter < shortestDist then
+                        shortestDist = distToCenter
+                        closest = head
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- Hook the camera CFrame to snap to the head
+RunService.RenderStepped:Connect(function()
+    if not CONFIG["Aimbot Enabled"] then return end
+    
+    local keyPressed = false
+    if CONFIG["Aimbot Key"] == "Always" then
+        keyPressed = true
+    else
+        -- Check if key is held down
+        local UserInputService = game:GetService("UserInputService")
+        local keyCode = Enum.KeyCode[CONFIG["Aimbot Key"]]
+        if keyCode and UserInputService:IsKeyDown(keyCode) then
+            keyPressed = true
+        end
+    end
+
+    if keyPressed then
+        local target = getClosestTarget()
+        if target then
+            -- Snap camera to the target's head
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, target.Position)
+        end
+    end
+end)
