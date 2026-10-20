@@ -9,7 +9,8 @@ local CONFIG = CONFIG or {
     ["WalkSpeed"] = 50,
     ["Noclip"] = false,
     ["Fly"] = false,
-    ["Taser Bypass"] = true
+    ["Taser Bypass"] = true,
+    ["Infinite Stamina"] = true
 }
 
 -- Wait for Knit
@@ -22,6 +23,7 @@ end
 local MedkitService = Knit.GetService("MedkitService")
 local MovementService = Knit.GetService("MovementService")
 local TaserController = Knit.GetController("TaserController")
+local StaminaController = Knit.GetController("StaminaController")
 
 -- 1. Taser Bypass
 if CONFIG["Taser Bypass"] and TaserController then
@@ -31,7 +33,32 @@ if CONFIG["Taser Bypass"] and TaserController then
     print("[CharMods] Taser Bypass Active ✔")
 end
 
--- 2. No Fall Damage
+-- 2. Infinite Stamina
+if CONFIG["Infinite Stamina"] and StaminaController then
+    local originalSet = StaminaController._set
+    StaminaController._set = function(self, value)
+        originalSet(self, self:_max())
+    end
+    
+    StaminaController._exhausted = false
+    StaminaController._winded = false
+    StaminaController._usedFullBar = false
+    
+    -- Extra safety loop just in case flags reset
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if CONFIG["Infinite Stamina"] then
+                StaminaController._exhausted = false
+                StaminaController._winded = false
+                StaminaController._usedFullBar = false
+            end
+        end
+    end)
+    print("[CharMods] Infinite Stamina Active ✔")
+end
+
+-- 3. No Fall Damage
 if CONFIG["No Fall Damage"] and MovementService then
     local originalFallDamage = MovementService.FallDamage
     MovementService.FallDamage = function(self, damage)
@@ -40,7 +67,7 @@ if CONFIG["No Fall Damage"] and MovementService then
     print("[CharMods] No Fall Damage Active ✔")
 end
 
--- 3. Godmode Heal (Spams Medkit)
+-- 4. Godmode Heal (Spams Medkit)
 task.spawn(function()
 	while true do
 		if CONFIG["Godmode Heal"] then
@@ -55,7 +82,7 @@ task.spawn(function()
 	end
 end)
 
--- 4. Fly Hack Logic
+-- 5. Fly Hack Logic
 local flyBodyVelocity = nil
 
 local function startFly()
@@ -115,7 +142,7 @@ task.spawn(function()
     end
 end)
 
--- 5. WalkSpeed & Noclip Loop
+-- 6. WalkSpeed & Noclip Loop
 local function applyCharacterMods(character)
     local humanoid = character:WaitForChild("Humanoid", 5)
     if not humanoid then return end
