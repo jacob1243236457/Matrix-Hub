@@ -4,6 +4,7 @@ local GROUP_ID = 5763193
 
 local Roles = {
     ["QA Tester"] = true,
+    ["Contributor"] = true,
     ["Developer"] = true,
     ["Lead Developer"] = true,
     ["The Founder"] = true,
