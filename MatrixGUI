@@ -1,41 +1,10 @@
--- MatrixGUI: builds the panel, handles icons internally, and manages cards.
+-- MatrixGUI: builds the panel, handles cards, native icons.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
-local HttpService = game:GetService("HttpService")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
-
--- Icon Resolver (Direct API fetch, guaranteed to work)
-local iconCache = {}
-local function getGameIcon(placeId)
-    local numId = tonumber(placeId)
-    if not numId then return "rbxassetid://6023426915" end
-    if iconCache[numId] then return iconCache[numId] end
-
-    local url = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
-
-    -- Use the Thumbnails API via request to get the exact working PNG link
-    local req = request or http_request or (syn and syn.request) or (http and http.request)
-    if req then
-        local ok, res = pcall(function()
-            return req({
-                Url = "https://thumbnails.roblox.com/v1/places/gameicons?placeIds=" .. numId .. "&returnPolicy=PlaceHolder&size=150x150&format=Png&isCircular=false",
-                Method = "GET"
-            })
-        end)
-        if ok and res and res.Body then
-            local decodeOk, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
-            if decodeOk and data and data.data and data.data[1] and data.data[1].imageUrl then
-                url = data.data[1].imageUrl
-            end
-        end
-    end
-
-    iconCache[numId] = url
-    return url
-end
 
 local function build()
     for _, container in ipairs({PlayerGui, CoreGui}) do
@@ -545,8 +514,8 @@ local function buildGameButton(gameData, parent, onClick)
     else
         local numId = tonumber(gameData.GameId)
         if numId then
-            -- Uses the internal icon function
-            icon.Image = getGameIcon(numId)
+            -- Native rbxthumb, absolutely no API required
+            icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
             task.spawn(function()
                 local ok, info = pcall(function()
                     return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Game)
