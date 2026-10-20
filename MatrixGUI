@@ -1,5 +1,4 @@
--- MatrixGUI: builds the panel, wires the close button, and returns
--- helpers HubLoader uses to render cards and game buttons.
+-- MatrixGUI: builds the panel and returns all fields HubLoader needs.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -8,7 +7,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
 
 local function build()
-    -- wipe any previous hub
+    -- Wipe any previous hub
     for _, container in ipairs({PlayerGui, CoreGui}) do
         for _, g in ipairs(container:GetChildren()) do
             if g.Name == "MatrixLoadstringHub" and g:IsA("ScreenGui") then
@@ -287,7 +286,7 @@ local function build()
     }
 end
 
--- Card builder: builds one script card. Returns { Frame, State, Run, SetExec, SetEject }.
+-- Builds one script card, returns { Frame, State, Run, SetExec, SetEject }.
 local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local mode = (scriptInfo.Mode or "toggle"):lower()
     local cfgCount = 0
@@ -468,7 +467,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
 
     btn.MouseButton1Click:Connect(function()
         if mode == "once" or mode == "fire" then
-            -- Eject every other running script first
             if onExecute then onExecute() end
             run()
             btn.Text = "RAN"
@@ -483,13 +481,11 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
             state.Active = nil
             setExec()
         else
-            -- Eject every other running script first
             if onExecute then onExecute() end
             if run() then setEject() end
         end
     end)
 
-    -- Reflect external kills (respawn wipe, other-card execute, etc).
     task.spawn(function()
         while card.Parent do
             if state.Active and not state.Active.Alive then
@@ -509,7 +505,7 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     }
 end
 
--- Game button: sidebar entry with working icon.
+-- Sidebar game button with icon fallback.
 local function buildGameButton(gameData, parent, onClick)
     local isUniversal = false
     if typeof(gameData.GameId) == "string" then
@@ -567,9 +563,6 @@ local function buildGameButton(gameData, parent, onClick)
                 end)
                 if ok and info then
                     if info.Name then lbl.Text = info.Name end
-                    if icon.Image == "" and info.IconImageAssetId and info.IconImageAssetId ~= 0 then
-                        icon.Image = "rbxassetid://" .. tostring(info.IconImageAssetId)
-                    end
                 end
             end)
         end
@@ -579,8 +572,20 @@ local function buildGameButton(gameData, parent, onClick)
     return btn
 end
 
+local gui = build()
+
 return {
-    Build = build,
+    ScreenGui = gui.ScreenGui,
+    MainFrame = gui.MainFrame,
+    CloseButton = gui.CloseButton,
+    GameListScroll = gui.GameListScroll,
+    GameListLayout = gui.GameListLayout,
+    GameListPadding = gui.GameListPadding,
+    ScriptScroll = gui.ScriptScroll,
+    ScriptLayout = gui.ScriptLayout,
+    ScriptPadding = gui.ScriptPadding,
+    StatusLabel = gui.StatusLabel,
+    ClearScriptArea = gui.ClearScriptArea,
     BuildCard = buildCard,
     BuildGameButton = buildGameButton,
 }
