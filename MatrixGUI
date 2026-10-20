@@ -1,37 +1,10 @@
--- MatrixGUI: Builds panel, uses HttpGet for icons, and handles cards.
+-- MatrixGUI: builds the panel, wires everything, and uses the native GetProductInfo method for icons.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
-local HttpService = game:GetService("HttpService")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
-
--- Internal Icon fetcher (Uses HttpGet so it NEVER fails)
-local iconCache = {}
-local function fetchIcon(placeId)
-    local numId = tonumber(placeId)
-    if not numId then return "rbxassetid://6023426915" end
-    if iconCache[numId] then return iconCache[numId] end
-
-    -- Fallback link just in case
-    local success, result = pcall(function()
-        local url = "https://thumbnails.roblox.com/v1/places/gameicons?placeIds=" .. numId .. "&returnPolicy=PlaceHolder&size=150x150&format=Png&isCircular=false"
-        local json = game:HttpGet(url)
-        local data = HttpService:JSONDecode(json)
-        return data.data[1].imageUrl
-    end)
-
-    if success and result then
-        iconCache[numId] = result
-        return result
-    end
-    
-    -- If API fails, use native rbxthumb
-    local fallback = "rbxthumb://type=GameIcon&id=" .. numId .. "&w=150&h=150"
-    iconCache[numId] = fallback
-    return fallback
-end
 
 local function build()
     for _, container in ipairs({PlayerGui, CoreGui}) do
@@ -70,7 +43,7 @@ local function build()
     local ms = Instance.new("UIStroke", main)
     ms.Color = Color3.fromRGB(0, 255, 65); ms.Thickness = 1.5; ms.Transparency = 0.2
 
-    -- Fix speed: Build the structure FIRST
+    -- Build main layout first to make it load fast
     local top = Instance.new("Frame")
     top.Size = UDim2.new(1, 0, 0, 36)
     top.BackgroundColor3 = Color3.fromRGB(4, 7, 4)
@@ -236,7 +209,6 @@ local function build()
     status.ZIndex = 2
     status.Parent = scriptScroll
 
-    -- Background rain runs LAST so it doesn't lag the initial load
     local canvas = Instance.new("Frame")
     canvas.Size = UDim2.new(1, 0, 1, 0)
     canvas.BackgroundTransparency = 1
@@ -340,7 +312,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local bst = Instance.new("UIStroke", btn)
     bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.3
 
-    -- Prefetch script so execution is instant
     local prefetched = nil
     task.spawn(function()
         if scriptInfo.Url then
@@ -544,14 +515,20 @@ local function buildGameButton(gameData, parent, onClick)
     else
         local numId = tonumber(gameData.GameId)
         if numId then
-            -- Fetch the icon URL directly using the internal HttpGet function
-            task.spawn(function()
-                icon.Image = fetchIcon(numId)
-                local ok, info = pcall(function()
-                    return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Game)
-                end)
-                if ok and info and info.Name then lbl.Text = info.Name end
+            -- NATIVE method (Old way that worked)
+            local success, info = pcall(function()
+                return MarketplaceService:GetProductInfo(numId)
             end)
+            if success and info then
+                if info.IconImageAssetId and info.IconImageAssetId ~= 0 then
+                    icon.Image = "rbxassetid://" .. tostring(info.IconImageAssetId)
+                else
+                    icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
+                end
+                if info.Name then lbl.Text = info.Name end
+            else
+                icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
+            end
         end
     end
 
