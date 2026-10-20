@@ -75,6 +75,7 @@
           "Instant Reload": true,
           "HitScan Bullets": true,
           "One Shot Kill": true,
+          "Full Auto": true,
           "Damage Through Walls": true,
           "Instant Grenade": false
         }
@@ -83,30 +84,33 @@
         "Name": "Melee Mods",
         "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Melee",
         "configValues": {
+          "Spam Punch": true,
           "Spam Swing": true,
           "No Stamina": true,
-          "Spam Punch": true
+          "Melee Reach": 50,
+          "Aura Punch": false
         }
       },
       {
-        "Name": "Infinite Grenades",
-        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20InfGrenades",
+        "Name": "Character Mods",
+        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Body%20Mods",
         "configValues": {
-          "Infinite Grenades": true
+          "Godmode Heal": true,
+          "No Fall Damage": true,
+          "WalkSpeed": 50,
+          "Noclip": false,
+          "Fly": false,
+          "Infinite Stamina": true,
+          "Taser Bypass": true
         }
       },
       {
-        "Name": "Silent Aim",
-        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Slient%20Aim",
+        "Name": "Good Gaming Chair",
+        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Gaming%20Chair",
         "configValues": {
-          "Silent Aim Enabled": true,
-          "Aimbot Key": "Always",
-          "FOV": 150
+          "Silent Aim": true,
+          "Aura Kill Players": false
         }
-      },
-      {
-        "Name": "Infinite Stamina",
-        "Url": "https://pastebin.com/raw/V9i2UQsh"
       }
     ]
   }
