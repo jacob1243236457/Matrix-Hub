@@ -1,0 +1,287 @@
+--[[
+    MatrixGUI — build the Matrix Loadstring Hub UI.
+    Returns a table of GUI references the caller wires up.
+]]
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
+
+local function makeGui()
+    local existing
+    for _, g in ipairs(PlayerGui:GetChildren()) do
+        if g.Name == "MatrixLoadstringHub" and g:IsA("ScreenGui") then existing = g break end
+    end
+    if not existing then
+        for _, g in ipairs(CoreGui:GetChildren()) do
+            if g.Name == "MatrixLoadstringHub" and g:IsA("ScreenGui") then existing = g break end
+        end
+    end
+    if existing then existing:Destroy() end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "MatrixLoadstringHub"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    if syn and syn.protect_gui then
+        syn.protect_gui(ScreenGui)
+        ScreenGui.Parent = CoreGui
+    elseif gethui then
+        ScreenGui.Parent = gethui()
+    else
+        ScreenGui.Parent = PlayerGui
+    end
+
+    -- ── Frames ────────────────────────────────────────────────
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Name = "MainFrame"
+    MainFrame.Size = UDim2.new(0, 620, 0, 420)
+    MainFrame.Position = UDim2.new(0.5, -310, 0.5, -210)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(6, 10, 6)
+    MainFrame.BackgroundTransparency = 0.02
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+    Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+    local mainStroke = Instance.new("UIStroke", MainFrame)
+    mainStroke.Color = Color3.fromRGB(0, 255, 65)
+    mainStroke.Thickness = 1.5
+    mainStroke.Transparency = 0.2
+
+    -- ── Matrix rain ───────────────────────────────────────────
+    local EffectCanvas = Instance.new("Frame")
+    EffectCanvas.Name = "EffectCanvas"
+    EffectCanvas.Size = UDim2.new(1, 0, 1, 0)
+    EffectCanvas.BackgroundTransparency = 1
+    EffectCanvas.ClipsDescendants = true
+    EffectCanvas.ZIndex = 0
+    EffectCanvas.Parent = MainFrame
+
+    task.spawn(function()
+        local columns = 45
+        local colWidth = 620 / columns
+        local chars = {"0","1","A","B","C","D","E","F","X","Z","S","T","R","H","I","N"}
+        for i = 1, columns do
+            task.spawn(function()
+                local colLabel = Instance.new("TextLabel")
+                colLabel.Size = UDim2.new(0, colWidth + 4, 1, 260)
+                colLabel.Position = UDim2.new(0, (i - 1) * colWidth - 2, 0, -260)
+                colLabel.BackgroundTransparency = 1
+                colLabel.TextColor3 = Color3.fromRGB(0, 255, 65)
+                colLabel.TextTransparency = math.random(25, 60) / 100
+                colLabel.TextSize = 11
+                colLabel.Font = Enum.Font.Code
+                colLabel.TextXAlignment = Enum.TextXAlignment.Center
+                colLabel.TextYAlignment = Enum.TextYAlignment.Top
+                colLabel.ZIndex = 0
+                colLabel.Parent = EffectCanvas
+                local speed = math.random(90, 180)
+                local function makeText()
+                    local s = ""
+                    for _ = 1, 35 do s = s .. chars[math.random(1, #chars)] .. "\n" end
+                    return s
+                end
+                colLabel.Text = makeText()
+                local y = -260
+                while ScreenGui.Parent and colLabel.Parent do
+                    y = y + speed * task.wait()
+                    if y > 480 then y = -320; speed = math.random(90, 180); colLabel.Text = makeText() end
+                    colLabel.Position = UDim2.new(0, (i - 1) * colWidth - 2, 0, y)
+                end
+            end)
+        end
+    end)
+
+    -- ── Top bar ───────────────────────────────────────────────
+    local TopBar = Instance.new("Frame")
+    TopBar.Name = "TopBar"
+    TopBar.Size = UDim2.new(1, 0, 0, 36)
+    TopBar.BackgroundColor3 = Color3.fromRGB(4, 7, 4)
+    TopBar.BackgroundTransparency = 0.1
+    TopBar.BorderSizePixel = 0
+    TopBar.ZIndex = 2
+    TopBar.Parent = MainFrame
+    Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 10)
+
+    local cover = Instance.new("Frame")
+    cover.Size = UDim2.new(1, 0, 0, 10)
+    cover.Position = UDim2.new(0, 0, 1, -10)
+    cover.BackgroundColor3 = Color3.fromRGB(4, 7, 4)
+    cover.BorderSizePixel = 0
+    cover.ZIndex = 2
+    cover.Parent = TopBar
+
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -50, 1, 0)
+    Title.Position = UDim2.new(0, 14, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "MATRIX // LOADSTRING HUB"
+    Title.TextColor3 = Color3.fromRGB(0, 255, 65)
+    Title.TextSize = 13
+    Title.Font = Enum.Font.Code
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.ZIndex = 3
+    Title.Parent = TopBar
+
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+    CloseBtn.Position = UDim2.new(1, -32, 0, 4)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(0, 40, 10)
+    CloseBtn.BackgroundTransparency = 0.3
+    CloseBtn.BorderSizePixel = 0
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.fromRGB(0, 255, 65)
+    CloseBtn.TextSize = 13
+    CloseBtn.Font = Enum.Font.Code
+    CloseBtn.ZIndex = 3
+    CloseBtn.Parent = TopBar
+    Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+    local cs = Instance.new("UIStroke", CloseBtn)
+    cs.Color = Color3.fromRGB(0, 255, 65); cs.Transparency = 0.4
+
+    -- ── Sidebar / content ─────────────────────────────────────
+    local Content = Instance.new("Frame")
+    Content.Size = UDim2.new(1, -16, 1, -48)
+    Content.Position = UDim2.new(0, 8, 0, 40)
+    Content.BackgroundTransparency = 1
+    Content.ZIndex = 2
+    Content.Parent = MainFrame
+
+    local Sidebar = Instance.new("Frame")
+    Sidebar.Size = UDim2.new(0, 175, 1, -6)
+    Sidebar.Position = UDim2.new(0, 0, 0, 3)
+    Sidebar.BackgroundTransparency = 1
+    Sidebar.ZIndex = 2
+    Sidebar.Parent = Content
+
+    -- Profile
+    local Profile = Instance.new("Frame")
+    Profile.Size = UDim2.new(1, 0, 0, 56)
+    Profile.Position = UDim2.new(0, 0, 1, -56)
+    Profile.BackgroundColor3 = Color3.fromRGB(8, 15, 8)
+    Profile.BackgroundTransparency = 0.2
+    Profile.BorderSizePixel = 0
+    Profile.ZIndex = 2
+    Profile.Parent = Sidebar
+    Instance.new("UICorner", Profile).CornerRadius = UDim.new(0, 8)
+    local ps = Instance.new("UIStroke", Profile)
+    ps.Color = Color3.fromRGB(0, 255, 65); ps.Transparency = 0.5
+
+    local Avatar = Instance.new("ImageLabel")
+    Avatar.Size = UDim2.new(0, 40, 0, 40)
+    Avatar.Position = UDim2.new(0, 8, 0.5, -20)
+    Avatar.BackgroundColor3 = Color3.fromRGB(0, 40, 10)
+    Avatar.BorderSizePixel = 0
+    pcall(function()
+        Avatar.Image = Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+    end)
+    Avatar.ZIndex = 2
+    Avatar.Parent = Profile
+    Instance.new("UICorner", Avatar).CornerRadius = UDim.new(1, 0)
+
+    local Display = Instance.new("TextLabel")
+    Display.Size = UDim2.new(1, -56, 0, 20)
+    Display.Position = UDim2.new(0, 54, 0, 8)
+    Display.BackgroundTransparency = 1
+    Display.Text = LocalPlayer.DisplayName
+    Display.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Display.TextSize = 11
+    Display.Font = Enum.Font.Code
+    Display.TextXAlignment = Enum.TextXAlignment.Left
+    Display.TextTruncate = Enum.TextTruncate.AtEnd
+    Display.ZIndex = 2
+    Display.Parent = Profile
+
+    local User = Instance.new("TextLabel")
+    User.Size = UDim2.new(1, -56, 0, 18)
+    User.Position = UDim2.new(0, 54, 0, 26)
+    User.BackgroundTransparency = 1
+    User.Text = "@" .. LocalPlayer.Name
+    User.TextColor3 = Color3.fromRGB(0, 255, 65)
+    User.TextSize = 10
+    User.Font = Enum.Font.Code
+    User.TextXAlignment = Enum.TextXAlignment.Left
+    User.TextTruncate = Enum.TextTruncate.AtEnd
+    User.ZIndex = 2
+    User.Parent = Profile
+
+    -- Game list
+    local GameList = Instance.new("ScrollingFrame")
+    GameList.Size = UDim2.new(1, 0, 1, -62)
+    GameList.BackgroundColor3 = Color3.fromRGB(8, 15, 8)
+    GameList.BackgroundTransparency = 0.5
+    GameList.BorderSizePixel = 0
+    GameList.CanvasSize = UDim2.new(0, 0, 0, 0)
+    GameList.ScrollBarThickness = 2
+    GameList.ScrollBarImageColor3 = Color3.fromRGB(0, 255, 65)
+    GameList.ZIndex = 2
+    GameList.Parent = Sidebar
+    local gl = Instance.new("UIListLayout", GameList)
+    gl.SortOrder = Enum.SortOrder.LayoutOrder
+    gl.Padding = UDim.new(0, 6)
+    local gp = Instance.new("UIPadding", GameList)
+    gp.PaddingTop = UDim.new(0, 6); gp.PaddingBottom = UDim.new(0, 6)
+    gp.PaddingLeft = UDim.new(0, 6); gp.PaddingRight = UDim.new(0, 6)
+
+    -- Script area
+    local ScriptArea = Instance.new("Frame")
+    ScriptArea.Size = UDim2.new(1, -183, 1, -6)
+    ScriptArea.Position = UDim2.new(0, 183, 0, 3)
+    ScriptArea.BackgroundColor3 = Color3.fromRGB(8, 15, 8)
+    ScriptArea.BackgroundTransparency = 0.5
+    ScriptArea.BorderSizePixel = 0
+    ScriptArea.ClipsDescendants = true
+    ScriptArea.ZIndex = 2
+    ScriptArea.Parent = Content
+
+    local ScriptScroll = Instance.new("ScrollingFrame")
+    ScriptScroll.Size = UDim2.new(1, -8, 1, -8)
+    ScriptScroll.Position = UDim2.new(0, 4, 0, 4)
+    ScriptScroll.BackgroundTransparency = 1
+    ScriptScroll.BorderSizePixel = 0
+    ScriptScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    ScriptScroll.ScrollBarThickness = 2
+    ScriptScroll.ScrollBarImageColor3 = Color3.fromRGB(0, 255, 65)
+    ScriptScroll.ClipsDescendants = true
+    ScriptScroll.ZIndex = 2
+    ScriptScroll.Parent = ScriptArea
+    local sl = Instance.new("UIListLayout", ScriptScroll)
+    sl.SortOrder = Enum.SortOrder.LayoutOrder
+    sl.Padding = UDim.new(0, 6)
+    local sp = Instance.new("UIPadding", ScriptScroll)
+    sp.PaddingTop = UDim.new(0, 4); sp.PaddingBottom = UDim.new(0, 4)
+    sp.PaddingLeft = UDim.new(0, 4); sp.PaddingRight = UDim.new(0, 4)
+
+    local Status = Instance.new("TextLabel")
+    Status.Size = UDim2.new(1, 0, 1, 0)
+    Status.BackgroundTransparency = 1
+    Status.Text = "INITIALIZING CORE..."
+    Status.TextColor3 = Color3.fromRGB(0, 255, 65)
+    Status.TextSize = 12
+    Status.Font = Enum.Font.Code
+    Status.ZIndex = 2
+    Status.Parent = ScriptScroll
+
+    return {
+        ScreenGui = ScreenGui,
+        MainFrame = MainFrame,
+        CloseButton = CloseBtn,
+        GameListScroll = GameList,
+        GameListLayout = gl,
+        GameListPadding = gp,
+        ScriptScroll = ScriptScroll,
+        ScriptLayout = sl,
+        ScriptPadding = sp,
+        StatusLabel = Status,
+        clearScriptArea = function()
+            for _, c in ipairs(ScriptScroll:GetChildren()) do
+                if c ~= sl and c ~= sp then c:Destroy() end
+            end
+        end,
+    }
+end
+
+return makeGui()
