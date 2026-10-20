@@ -1,10 +1,13 @@
--- MatrixGUI: builds the panel, calls IconLoader for game icons.
+-- MatrixGUI: builds the panel, cards, game buttons, and handles icons.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
+
+-- Icon cache to avoid re-processing
+local iconCache = {}
 
 local function build()
     for _, container in ipairs({PlayerGui, CoreGui}) do
@@ -91,6 +94,7 @@ local function build()
     top.ZIndex = 2
     top.Parent = main
     Instance.new("UICorner", top).CornerRadius = UDim.new(0, 10)
+    
     local cover = Instance.new("Frame")
     cover.Size = UDim2.new(1, 0, 0, 10)
     cover.Position = UDim2.new(0, 0, 1, -10)
@@ -262,7 +266,6 @@ local function build()
 end
 
 local function buildCard(scriptInfo, parent, Cleanup, onExecute)
-    -- Standard card logic (unchanged)
     local mode = (scriptInfo.Mode or "toggle"):lower()
     local cfgCount = 0
     if type(scriptInfo.configValues) == "table" then
@@ -311,7 +314,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local bst = Instance.new("UIStroke", btn)
     bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.3
 
-    -- Prefetch source immediately
     local prefetched = nil
     task.spawn(function()
         if scriptInfo.Url then
@@ -466,7 +468,7 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     return { Frame = card, State = state, Run = run, SetExec = setExec, SetEject = setEject }
 end
 
-local function buildGameButton(gameData, parent, onClick, IconLoader)
+local function buildGameButton(gameData, parent, onClick)
     local isUniversal = false
     if typeof(gameData.GameId) == "string" then
         isUniversal = gameData.GameId:lower() == "universal" or gameData.GameId == "0"
@@ -515,8 +517,9 @@ local function buildGameButton(gameData, parent, onClick, IconLoader)
     else
         local numId = tonumber(gameData.GameId)
         if numId then
-            -- Call the new IconLoader module
-            icon.Image = IconLoader.Get(numId)
+            -- Direct rbxthumb call, bypassing API entirely
+            icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
+            
             task.spawn(function()
                 local ok, info = pcall(function()
                     return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Game)
