@@ -1,13 +1,93 @@
 --[[
-    Blacksite Zeta — Gun Modifications (Hub Integrated)
-    Fixed: CONFIG priority, NumberBullets placement, safety checks
+    Blacksite Zeta — Gun Modifications
+    ==================================
+    Requires: bz_ac_bypass.luau must be executed FIRST.
+    The Arsenal bypass (Section 5) ensures that weapon integrity
+    hash challenges always return pristine values, so these live
+    modifications are invisible to the anticheat.
+
+    MODIFICATIONS:
+      [1] Fire Rate       — FireRPM boosted (FireDelaySeconds ~ 0.01s)
+      [2] No Spread        — SpreadRadius set to 0 (perfect accuracy)
+      [3] No Recoil        — CamRecoilMin/Max set to Vector3.zero
+      [4] Infinite Ammo    — Ammo kept at ClipSize every Heartbeat
+      [5] 3 Bullets/Shot   — NumberBullets set to 3 (triple raycast)
+
+    WORKS WITHOUT WEAPON EQUIPPED:
+      The mod loop no longer relies solely on Combat.CurrentWeapons,
+      which only populates while a tool is held. Instead we scan:
+        • Combat.CurrentWeapons (live-held weapons)
+        • Combat.Weapons / WeaponInstances / AllWeapons (if present)
+        • Every Tool in the player's Backpack
+        • Every Tool in the player's Character (equipped)
+      Any table we find that looks like a weapon instance gets the
+      mods applied. A persistent cache remembers weapon tables across
+      frames so backpack weapons keep their mods even after being
+      unequipped, and newly-spawned weapons are picked up within 1
+      frame of being added to the Backpack.
+
+    HUB INTEGRATION:
+      When run through Matrix Hub, the loader injects a `CONFIG` table
+      into this script's sandboxed environment containing the values
+      set in the UI. We prefer that over our built-in defaults so UI
+      edits take effect live. If run standalone, the local defaults
+      below are used.
+
+    SERVER-SIDE NOTE:
+      These mods are client-side only. The server receives FireServer
+      calls with real hit data (position, direction, target). The server
+      may independently validate fire rate (time between calls) and
+      damage application. This bypass handles the client AC reporting
+      layer; server-side rate limiting is outside its scope.
+
+    USAGE:
+      Execute after bz_ac_bypass.luau
+      shared.BZ_GunMods_Stop() — stops the Heartbeat loop
+      shared.BZ_GunMods_Status() — returns current config + state
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
+local LocalPlayer = Players.LocalPlayer
+
+-- ════════════════════════════════════════════════════════════════
+-- CONFIGURATION
+-- ════════════════════════════════════════════════════════════════
+
+local DEFAULT_CONFIG = {
+    FireDelaySeconds = 0.01,
+    SpreadRadius = 0,
+    CamRecoilMin = Vector3.new(0, 0, 0),
+    CamRecoilMax = Vector3.new(0, 0, 0),
+    InfiniteAmmo = true,
+    NumberBullets = 3,
+}
+
+-- Resolve effective config:
+--   1. Hub-injected CONFIG (env) — live UI values
+--   2. Fallback to local DEFAULT_CONFIG
+-- We intentionally do NOT read _G.CONFIG (can be stale on some executors).
+local function resolveConfig()
+    local cfg = CONFIG
+    if type(cfg) ~= "table" then
+        cfg = DEFAULT_CONFIG
+    end
+    if cfg.FireDelaySeconds == nil then cfg.FireDelaySeconds = DEFAULT_CONFIG.FireDelaySeconds end
+    if cfg.SpreadRadius == nil then cfg.SpreadRadius = DEFAULT_CONFIG.SpreadRadius end
+    if cfg.CamRecoilMin == nil then cfg.CamRecoilMin = DEFAULT_CONFIG.CamRecoilMin end
+    if cfg.CamRecoilMax == nil then cfg.CamRecoilMax = DEFAULT_CONFIG.CamRecoilMax end
+    if cfg.InfiniteAmmo == nil then cfg.InfiniteAmmo = DEFAULT_CONFIG.InfiniteAmmo end
+    if cfg.NumberBullets == nil then cfg.NumberBullets = DEFAULT_CONFIG.NumberBullets end
+    return cfg
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- RESOLVE COMBAT MODULE
+-- ════════════════════════════════════════════════════════════════
+
 local function getCombat()
-    local ps = Players.LocalPlayer:FindFirstChildOfClass("PlayerScripts")
+    local ps = LocalPlayer:FindFirstChildOfClass("PlayerScripts")
     local mod = ps and ps:FindFirstChild("ClientCombatController")
     mod = mod and mod:FindFirstChild("Modules")
     mod = mod and mod:FindFirstChild("Weapons")
@@ -20,33 +100,46 @@ local function getCombat()
     return nil
 end
 
-local function applyMods(weapon, activeConfig)
+-- ════════════════════════════════════════════════════════════════
+-- HEURISTIC: does this table look like a weapon instance?
+-- ════════════════════════════════════════════════════════════════
+-- The firing loop reads FireDelaySeconds and NumberBullets, and the
+-- ammo system reads Ammo/ClipSize. Data holds SpreadRadius and recoil.
+-- Any table with FireDelaySeconds OR (Ammo/ClipSize) OR a Data subtable
+-- with weapon-ish fields is treated as a weapon instance.
+-- ════════════════════════════════════════════════════════════════
+
+local function looksLikeWeapon(t)
+    if type(t) ~= "table" then return false end
+    if t.FireDelaySeconds ~= nil then return true end
+    if t.NumberBullets ~= nil then return true end
+    if t.Ammo ~= nil and t.ClipSize ~= nil then return true end
+    if type(t.Data) == "table" then
+        local d = t.Data
+        if d.SpreadRadius ~= nil or d.CamRecoilMin ~= nil or d.CamRecoilMax ~= nil then
+            return true
+        end
+    end
+    return false
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- APPLY MODIFICATIONS TO A SINGLE WEAPON INSTANCE
+-- ════════════════════════════════════════════════════════════════
+
+local function applyMods(weapon, cfg)
     if not weapon or type(weapon) ~= "table" then return end
 
-    -- Fire delay
-    if activeConfig.FireDelaySeconds ~= nil then
-        weapon.FireDelaySeconds = activeConfig.FireDelaySeconds
-    end
+    weapon.FireDelaySeconds = cfg.FireDelaySeconds
 
-    -- Data-based mods (spread / recoil)
     if weapon.Data and type(weapon.Data) == "table" then
-        if activeConfig.SpreadRadius ~= nil then
-            weapon.Data.SpreadRadius = activeConfig.SpreadRadius
-        end
-        if activeConfig.CamRecoilMin ~= nil then
-            weapon.Data.CamRecoilMin = activeConfig.CamRecoilMin
-        end
-        if activeConfig.CamRecoilMax ~= nil then
-            weapon.Data.CamRecoilMax = activeConfig.CamRecoilMax
-        end
-        -- NumberBullets may live in Data on some weapons
-        if activeConfig.NumberBullets ~= nil then
-            weapon.Data.NumberBullets = activeConfig.NumberBullets
-        end
+        weapon.Data.SpreadRadius = cfg.SpreadRadius
+        weapon.Data.CamRecoilMin = cfg.CamRecoilMin
+        weapon.Data.CamRecoilMax = cfg.CamRecoilMax
+        weapon.Data.NumberBullets = cfg.NumberBullets
     end
 
-    -- Infinite ammo
-    if activeConfig.InfiniteAmmo then
+    if cfg.InfiniteAmmo then
         if weapon.ClipSize and weapon.ClipSize > 0 then
             if weapon.Ammo < weapon.ClipSize then
                 weapon.Ammo = weapon.ClipSize
@@ -57,11 +150,118 @@ local function applyMods(weapon, activeConfig)
         end
     end
 
-    -- NumberBullets (top-level, if the weapon uses it there)
-    if activeConfig.NumberBullets ~= nil then
-        weapon.NumberBullets = activeConfig.NumberBullets
+    weapon.NumberBullets = cfg.NumberBullets
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- WEAPON DISCOVERY (works without equipped weapon)
+-- ════════════════════════════════════════════════════════════════
+-- Collects candidate weapon tables from every place they might live.
+--   • Combat.CurrentWeapons[tool]  — live-held weapons
+--   • Combat.Weapons / .WeaponInstances / .AllWeapons — if exposed
+--   • tool.<weapon-ish child table>  — some games attach the weapon
+--     instance to the Tool itself (e.g. tool.Weapon, tool.Instance)
+--   • A persistent cache so weapons already seen keep getting modded
+--     even if they leave both CurrentWeapons and the backpack briefly.
+-- ════════════════════════════════════════════════════════════════
+
+local weaponCache = setmetatable({}, { __mode = "k" })  -- weak keys
+local cacheOrder = {}
+
+local function remember(weapon)
+    if type(weapon) ~= "table" then return end
+    if weaponCache[weapon] then return end
+    weaponCache[weapon] = true
+    table.insert(cacheOrder, weapon)
+    -- Cap cache growth so it can't leak forever across a long session.
+    if #cacheOrder > 256 then
+        local drop = table.remove(cacheOrder, 1)
+        weaponCache[drop] = nil
     end
 end
+
+local function harvestFromTable(t, out)
+    if type(t) ~= "table" then return end
+    -- Direct weapon instance
+    if looksLikeWeapon(t) then
+        table.insert(out, t)
+        return
+    end
+    -- Tool that may hold a weapon instance as a child
+    for _, v in pairs(t) do
+        if type(v) == "table" and looksLikeWeapon(v) then
+            table.insert(out, v)
+        end
+    end
+end
+
+local function gatherWeapons(Combat)
+    local found = {}
+
+    -- 1. Combat.CurrentWeapons (live-held)
+    if Combat and type(Combat.CurrentWeapons) == "table" then
+        for _, w in pairs(Combat.CurrentWeapons) do
+            harvestFromTable(w, found)
+        end
+    end
+
+    -- 2. Other Combat sub-tables that may expose all weapon instances
+    if Combat then
+        for _, name in ipairs({ "Weapons", "WeaponInstances", "AllWeapons", "WeaponCache" }) do
+            local t = Combat[name]
+            if type(t) == "table" then
+                for _, w in pairs(t) do
+                    harvestFromTable(w, found)
+                end
+            end
+        end
+    end
+
+    -- 3. Every tool in Backpack (not equipped)
+    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+    if backpack then
+        for _, tool in ipairs(backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                for _, child in pairs(tool) do
+                    harvestFromTable(child, found)
+                end
+            end
+        end
+    end
+
+    -- 4. Every tool in Character (equipped)
+    local char = LocalPlayer.Character
+    if char then
+        for _, tool in ipairs(char:GetChildren()) do
+            if tool:IsA("Tool") then
+                for _, child in pairs(tool) do
+                    harvestFromTable(child, found)
+                end
+            end
+        end
+    end
+
+    -- 5. Persistent cache (weapons seen before, even if momentarily gone)
+    for _, w in ipairs(cacheOrder) do
+        if weaponCache[w] then
+            table.insert(found, w)
+        end
+    end
+
+    -- Remember everything we found for future frames
+    for _, w in ipairs(found) do
+        remember(w)
+    end
+
+    return found
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- HEARTBEAT LOOP
+-- ════════════════════════════════════════════════════════════════
+-- Runs every Heartbeat (~60fps). Applies mods to every weapon found
+-- via gatherWeapons, whether or not a tool is currently held.
+-- ════════════════════════════════════════════════════════════════
 
 if shared.BZ_GunMods_Connection then
     shared.BZ_GunMods_Connection:Disconnect()
@@ -69,25 +269,65 @@ if shared.BZ_GunMods_Connection then
 end
 
 local connection = RunService.Heartbeat:Connect(function()
-    -- Resolve config each tick: prefer hub-injected CONFIG (env), then _G.CONFIG, then defaults
-    local activeConfig = CONFIG or rawget(_G, "CONFIG") or {
-        FireDelaySeconds = 0.01,
-        SpreadRadius = 0,
-        CamRecoilMin = Vector3.new(0, 0, 0),
-        CamRecoilMax = Vector3.new(0, 0, 0),
-        InfiniteAmmo = true,
-        NumberBullets = 3,
-    }
-
+    local cfg = resolveConfig()
     local Combat = getCombat()
-    if not Combat then return end
-    for _, weapon in pairs(Combat.CurrentWeapons) do
-        applyMods(weapon, activeConfig)
+    local weapons = gatherWeapons(Combat)
+    for _, weapon in ipairs(weapons) do
+        applyMods(weapon, cfg)
     end
 end)
 
 shared.BZ_GunMods_Connection = connection
 
+-- ════════════════════════════════════════════════════════════════
+-- CONTROL FUNCTIONS
+-- ════════════════════════════════════════════════════════════════
+
+shared.BZ_GunMods_Stop = function()
+    if shared.BZ_GunMods_Connection then
+        shared.BZ_GunMods_Connection:Disconnect()
+        shared.BZ_GunMods_Connection = nil
+    end
+end
+
+shared.BZ_GunMods_Status = function()
+    local Combat = getCombat()
+    local cfg = resolveConfig()
+    local weapons = {}
+    local seen = {}
+    for _, w in ipairs(gatherWeapons(Combat)) do
+        if not seen[w] then
+            seen[w] = true
+            table.insert(weapons, {
+                fireDelay = w.FireDelaySeconds,
+                numBullets = w.NumberBullets,
+                ammo = w.Ammo,
+                clipSize = w.ClipSize,
+                spread = w.Data and w.Data.SpreadRadius or "nil",
+                recoilMin = w.Data and tostring(w.Data.CamRecoilMin) or "nil",
+            })
+        end
+    end
+    return {
+        active = shared.BZ_GunMods_Connection ~= nil,
+        config = cfg,
+        weapons = weapons,
+    }
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- VERIFY AC BYPASS IS ACTIVE
+-- ════════════════════════════════════════════════════════════════
+
+local acActive = shared.BZ_AC_BYPASS ~= nil
+    and type(shared.BZ_AC_Arsenal_Snapshots) == "table"
+
+if not acActive then
+    warn("[BZ GunMods] WARNING: AC bypass does not appear to be active!")
+    warn("[BZ GunMods] Execute bz_ac_bypass.luau FIRST to avoid kicks.")
+end
+
+-- Cleanup hook so the hub's EJECT button kills this loop cleanly
 if type(cleanup) == "function" then
     cleanup(function()
         if shared.BZ_GunMods_Connection then
