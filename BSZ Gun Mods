@@ -1,5 +1,6 @@
 --[[
     Blacksite Zeta — Gun Modifications (Hub Integrated)
+    Fixed: CONFIG priority, NumberBullets placement, safety checks
 ]]
 
 local Players = game:GetService("Players")
@@ -19,26 +20,32 @@ local function getCombat()
     return nil
 end
 
-local function applyMods(weapon)
+local function applyMods(weapon, activeConfig)
     if not weapon or type(weapon) ~= "table" then return end
 
-    local activeConfig = rawget(_G, "CONFIG") or CONFIG or {
-        FireDelaySeconds = 0.01,
-        SpreadRadius = 0,
-        CamRecoilMin = Vector3.new(0, 0, 0),
-        CamRecoilMax = Vector3.new(0, 0, 0),
-        InfiniteAmmo = true,
-        NumberBullets = 3,
-    }
-
-    weapon.FireDelaySeconds = activeConfig.FireDelaySeconds or 0.01
-
-    if weapon.Data and type(weapon.Data) == "table" then
-        weapon.Data.SpreadRadius = activeConfig.SpreadRadius or 0
-        weapon.Data.CamRecoilMin = activeConfig.CamRecoilMin or Vector3.new(0, 0, 0)
-        weapon.Data.CamRecoilMax = activeConfig.CamRecoilMax or Vector3.new(0, 0, 0)
+    -- Fire delay
+    if activeConfig.FireDelaySeconds ~= nil then
+        weapon.FireDelaySeconds = activeConfig.FireDelaySeconds
     end
 
+    -- Data-based mods (spread / recoil)
+    if weapon.Data and type(weapon.Data) == "table" then
+        if activeConfig.SpreadRadius ~= nil then
+            weapon.Data.SpreadRadius = activeConfig.SpreadRadius
+        end
+        if activeConfig.CamRecoilMin ~= nil then
+            weapon.Data.CamRecoilMin = activeConfig.CamRecoilMin
+        end
+        if activeConfig.CamRecoilMax ~= nil then
+            weapon.Data.CamRecoilMax = activeConfig.CamRecoilMax
+        end
+        -- NumberBullets may live in Data on some weapons
+        if activeConfig.NumberBullets ~= nil then
+            weapon.Data.NumberBullets = activeConfig.NumberBullets
+        end
+    end
+
+    -- Infinite ammo
     if activeConfig.InfiniteAmmo then
         if weapon.ClipSize and weapon.ClipSize > 0 then
             if weapon.Ammo < weapon.ClipSize then
@@ -50,18 +57,32 @@ local function applyMods(weapon)
         end
     end
 
-    weapon.NumberBullets = activeConfig.NumberBullets or 3
+    -- NumberBullets (top-level, if the weapon uses it there)
+    if activeConfig.NumberBullets ~= nil then
+        weapon.NumberBullets = activeConfig.NumberBullets
+    end
 end
 
 if shared.BZ_GunMods_Connection then
     shared.BZ_GunMods_Connection:Disconnect()
+    shared.BZ_GunMods_Connection = nil
 end
 
 local connection = RunService.Heartbeat:Connect(function()
+    -- Resolve config each tick: prefer hub-injected CONFIG (env), then _G.CONFIG, then defaults
+    local activeConfig = CONFIG or rawget(_G, "CONFIG") or {
+        FireDelaySeconds = 0.01,
+        SpreadRadius = 0,
+        CamRecoilMin = Vector3.new(0, 0, 0),
+        CamRecoilMax = Vector3.new(0, 0, 0),
+        InfiniteAmmo = true,
+        NumberBullets = 3,
+    }
+
     local Combat = getCombat()
     if not Combat then return end
     for _, weapon in pairs(Combat.CurrentWeapons) do
-        applyMods(weapon)
+        applyMods(weapon, activeConfig)
     end
 end)
 
