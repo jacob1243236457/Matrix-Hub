@@ -2,48 +2,25 @@
     Blacksite Zeta — Gun Modifications
     ==================================
     Requires: bz_ac_bypass.luau must be executed FIRST.
-    The Arsenal bypass (Section 5) ensures that weapon integrity
-    hash challenges always return pristine values, so these live
-    modifications are invisible to the anticheat.
 
     MODIFICATIONS:
-      [1] Fire Rate       — FireRPM boosted (FireDelaySeconds ~ 0.01s)
-      [2] No Spread        — SpreadRadius set to 0 (perfect accuracy)
-      [3] No Recoil        — CamRecoilMin/Max set to Vector3.zero
+      [1] Fire Rate       — FireDelaySeconds ~ 0.01s
+      [2] No Spread        — SpreadRadius = 0
+      [3] No Recoil        — CamRecoilMin/Max = Vector3.zero
       [4] Infinite Ammo    — Ammo kept at ClipSize every Heartbeat
-      [5] 3 Bullets/Shot   — NumberBullets set to 3 (triple raycast)
+      [5] 3 Bullets/Shot   — NumberBullets = 3
 
     WORKS WITHOUT WEAPON EQUIPPED:
-      The mod loop no longer relies solely on Combat.CurrentWeapons,
-      which only populates while a tool is held. Instead we scan:
-        • Combat.CurrentWeapons (live-held weapons)
-        • Combat.Weapons / WeaponInstances / AllWeapons (if present)
-        • Every Tool in the player's Backpack
-        • Every Tool in the player's Character (equipped)
-      Any table we find that looks like a weapon instance gets the
-      mods applied. A persistent cache remembers weapon tables across
-      frames so backpack weapons keep their mods even after being
-      unequipped, and newly-spawned weapons are picked up within 1
-      frame of being added to the Backpack.
+      Scans Combat.CurrentWeapons, Combat sub-tables, Backpack tools,
+      Character tools, and a persistent cache. Any table that looks
+      like a weapon instance gets the mods applied.
 
-    HUB INTEGRATION:
-      When run through Matrix Hub, the loader injects a `CONFIG` table
-      into this script's sandboxed environment containing the values
-      set in the UI. We prefer that over our built-in defaults so UI
-      edits take effect live. If run standalone, the local defaults
-      below are used.
-
-    SERVER-SIDE NOTE:
-      These mods are client-side only. The server receives FireServer
-      calls with real hit data (position, direction, target). The server
-      may independently validate fire rate (time between calls) and
-      damage application. This bypass handles the client AC reporting
-      layer; server-side rate limiting is outside its scope.
-
-    USAGE:
-      Execute after bz_ac_bypass.luau
-      shared.BZ_GunMods_Stop() — stops the Heartbeat loop
-      shared.BZ_GunMods_Status() — returns current config + state
+    FIX (this version):
+      harvestFromTable previously called pairs() on Tool Instances,
+      which some executors reject with
+      "invalid argument #1 to 'pairs' (table expected, got Instance)".
+      Every iteration is now guarded with type(x) == "table" and
+      Instances are skipped / handled via :GetChildren().
 ]]
 
 local Players = game:GetService("Players")
@@ -64,10 +41,6 @@ local DEFAULT_CONFIG = {
     NumberBullets = 3,
 }
 
--- Resolve effective config:
---   1. Hub-injected CONFIG (env) — live UI values
---   2. Fallback to local DEFAULT_CONFIG
--- We intentionally do NOT read _G.CONFIG (can be stale on some executors).
 local function resolveConfig()
     local cfg = CONFIG
     if type(cfg) ~= "table" then
@@ -101,12 +74,7 @@ local function getCombat()
 end
 
 -- ════════════════════════════════════════════════════════════════
--- HEURISTIC: does this table look like a weapon instance?
--- ════════════════════════════════════════════════════════════════
--- The firing loop reads FireDelaySeconds and NumberBullets, and the
--- ammo system reads Ammo/ClipSize. Data holds SpreadRadius and recoil.
--- Any table with FireDelaySeconds OR (Ammo/ClipSize) OR a Data subtable
--- with weapon-ish fields is treated as a weapon instance.
+-- WEAPON DETECTION
 -- ════════════════════════════════════════════════════════════════
 
 local function looksLikeWeapon(t)
@@ -124,7 +92,7 @@ local function looksLikeWeapon(t)
 end
 
 -- ════════════════════════════════════════════════════════════════
--- APPLY MODIFICATIONS TO A SINGLE WEAPON INSTANCE
+-- APPLY MODIFICATIONS
 -- ════════════════════════════════════════════════════════════════
 
 local function applyMods(weapon, cfg)
@@ -154,18 +122,10 @@ local function applyMods(weapon, cfg)
 end
 
 -- ════════════════════════════════════════════════════════════════
--- WEAPON DISCOVERY (works without equipped weapon)
--- ════════════════════════════════════════════════════════════════
--- Collects candidate weapon tables from every place they might live.
---   • Combat.CurrentWeapons[tool]  — live-held weapons
---   • Combat.Weapons / .WeaponInstances / .AllWeapons — if exposed
---   • tool.<weapon-ish child table>  — some games attach the weapon
---     instance to the Tool itself (e.g. tool.Weapon, tool.Instance)
---   • A persistent cache so weapons already seen keep getting modded
---     even if they leave both CurrentWeapons and the backpack briefly.
+-- WEAPON DISCOVERY
 -- ════════════════════════════════════════════════════════════════
 
-local weaponCache = setmetatable({}, { __mode = "k" })  -- weak keys
+local weaponCache = setmetatable({}, { __mode = "k" })
 local cacheOrder = {}
 
 local function remember(weapon)
@@ -173,21 +133,28 @@ local function remember(weapon)
     if weaponCache[weapon] then return end
     weaponCache[weapon] = true
     table.insert(cacheOrder, weapon)
-    -- Cap cache growth so it can't leak forever across a long session.
     if #cacheOrder > 256 then
         local drop = table.remove(cacheOrder, 1)
         weaponCache[drop] = nil
     end
 end
 
+-- Safely harvest from an arbitrary value. Never calls pairs() on an
+-- Instance that the executor can't iterate.
 local function harvestFromTable(t, out)
-    if type(t) ~= "table" then return end
-    -- Direct weapon instance
+    -- Non-tables (Instances, userdata, primitives) are not weapon
+    -- tables. Skip them entirely — a previous version tried to
+    -- pairs() them, which threw.
+    if type(t) ~= "table" then
+        return
+    end
+
     if looksLikeWeapon(t) then
         table.insert(out, t)
         return
     end
-    -- Tool that may hold a weapon instance as a child
+
+    -- Scan children of the candidate table for nested weapon tables.
     for _, v in pairs(t) do
         if type(v) == "table" and looksLikeWeapon(v) then
             table.insert(out, v)
@@ -195,17 +162,44 @@ local function harvestFromTable(t, out)
     end
 end
 
+-- Inspect a Tool Instance: scan its children for weapon tables.
+local function harvestFromTool(tool, out)
+    if typeof(tool) ~= "Instance" then return end
+    if not tool:IsA("Tool") then return end
+
+    for _, child in ipairs(tool:GetChildren()) do
+        -- child may be a table-valued attribute? No — Instance children
+        -- are Instances. But some executors attach arbitrary values to
+        -- Instances; guard defensively.
+        if type(child) == "table" then
+            harvestFromTable(child, out)
+        end
+    end
+
+    -- Some games store the weapon instance as an attribute or a value
+    -- object. Scan ValueBase children too — their `.Value` could be a
+    -- table on executors that allow it.
+    for _, child in ipairs(tool:GetChildren()) do
+        if child:IsA("ValueBase") then
+            local v = child.Value
+            if type(v) == "table" then
+                harvestFromTable(v, out)
+            end
+        end
+    end
+end
+
 local function gatherWeapons(Combat)
     local found = {}
 
-    -- 1. Combat.CurrentWeapons (live-held)
+    -- 1. Combat.CurrentWeapons
     if Combat and type(Combat.CurrentWeapons) == "table" then
         for _, w in pairs(Combat.CurrentWeapons) do
             harvestFromTable(w, found)
         end
     end
 
-    -- 2. Other Combat sub-tables that may expose all weapon instances
+    -- 2. Other Combat sub-tables
     if Combat then
         for _, name in ipairs({ "Weapons", "WeaponInstances", "AllWeapons", "WeaponCache" }) do
             local t = Combat[name]
@@ -217,38 +211,33 @@ local function gatherWeapons(Combat)
         end
     end
 
-    -- 3. Every tool in Backpack (not equipped)
+    -- 3. Backpack tools
     local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
     if backpack then
         for _, tool in ipairs(backpack:GetChildren()) do
             if tool:IsA("Tool") then
-                for _, child in pairs(tool) do
-                    harvestFromTable(child, found)
-                end
+                harvestFromTool(tool, found)
             end
         end
     end
 
-    -- 4. Every tool in Character (equipped)
+    -- 4. Character tools
     local char = LocalPlayer.Character
     if char then
         for _, tool in ipairs(char:GetChildren()) do
             if tool:IsA("Tool") then
-                for _, child in pairs(tool) do
-                    harvestFromTable(child, found)
-                end
+                harvestFromTool(tool, found)
             end
         end
     end
 
-    -- 5. Persistent cache (weapons seen before, even if momentarily gone)
+    -- 5. Cache
     for _, w in ipairs(cacheOrder) do
-        if weaponCache[w] then
+        if weaponCache[w] and type(w) == "table" then
             table.insert(found, w)
         end
     end
 
-    -- Remember everything we found for future frames
     for _, w in ipairs(found) do
         remember(w)
     end
@@ -259,9 +248,6 @@ end
 -- ════════════════════════════════════════════════════════════════
 -- HEARTBEAT LOOP
 -- ════════════════════════════════════════════════════════════════
--- Runs every Heartbeat (~60fps). Applies mods to every weapon found
--- via gatherWeapons, whether or not a tool is currently held.
--- ════════════════════════════════════════════════════════════════
 
 if shared.BZ_GunMods_Connection then
     shared.BZ_GunMods_Connection:Disconnect()
@@ -269,12 +255,15 @@ if shared.BZ_GunMods_Connection then
 end
 
 local connection = RunService.Heartbeat:Connect(function()
-    local cfg = resolveConfig()
-    local Combat = getCombat()
-    local weapons = gatherWeapons(Combat)
-    for _, weapon in ipairs(weapons) do
-        applyMods(weapon, cfg)
-    end
+    -- wrap in pcall so a single bad frame doesn't spam the console
+    pcall(function()
+        local cfg = resolveConfig()
+        local Combat = getCombat()
+        local weapons = gatherWeapons(Combat)
+        for _, weapon in ipairs(weapons) do
+            applyMods(weapon, cfg)
+        end
+    end)
 end)
 
 shared.BZ_GunMods_Connection = connection
@@ -316,7 +305,7 @@ shared.BZ_GunMods_Status = function()
 end
 
 -- ════════════════════════════════════════════════════════════════
--- VERIFY AC BYPASS IS ACTIVE
+-- AC BYPASS CHECK
 -- ════════════════════════════════════════════════════════════════
 
 local acActive = shared.BZ_AC_BYPASS ~= nil
@@ -327,7 +316,6 @@ if not acActive then
     warn("[BZ GunMods] Execute bz_ac_bypass.luau FIRST to avoid kicks.")
 end
 
--- Cleanup hook so the hub's EJECT button kills this loop cleanly
 if type(cleanup) == "function" then
     cleanup(function()
         if shared.BZ_GunMods_Connection then
