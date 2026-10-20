@@ -1,4 +1,4 @@
--- MatrixGUI: builds the panel, wires everything, and uses the native GetProductInfo method for icons.
+-- MatrixGUI: builds the panel, prefetches scripts, and handles proper ejection.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -43,7 +43,46 @@ local function build()
     local ms = Instance.new("UIStroke", main)
     ms.Color = Color3.fromRGB(0, 255, 65); ms.Thickness = 1.5; ms.Transparency = 0.2
 
-    -- Build main layout first to make it load fast
+    local canvas = Instance.new("Frame")
+    canvas.Size = UDim2.new(1, 0, 1, 0)
+    canvas.BackgroundTransparency = 1
+    canvas.ClipsDescendants = true
+    canvas.ZIndex = 0
+    canvas.Parent = main
+
+    task.delay(0.05, function()
+        local cols, cw = 45, 620 / 45
+        local chars = {"0","1","A","B","C","D","E","F","X","Z","S","T","R","H","I","N"}
+        for i = 1, cols do
+            task.spawn(function()
+                local lbl = Instance.new("TextLabel")
+                lbl.Size = UDim2.new(0, cw + 4, 1, 260)
+                lbl.Position = UDim2.new(0, (i - 1) * cw - 2, 0, -260)
+                lbl.BackgroundTransparency = 1
+                lbl.TextColor3 = Color3.fromRGB(0, 255, 65)
+                lbl.TextTransparency = math.random(25, 60) / 100
+                lbl.TextSize = 11
+                lbl.Font = Enum.Font.Code
+                lbl.TextXAlignment = Enum.TextXAlignment.Center
+                lbl.TextYAlignment = Enum.TextYAlignment.Top
+                lbl.ZIndex = 0
+                lbl.Parent = canvas
+                local function fill()
+                    local t = {}
+                    for _ = 1, 35 do t[#t+1] = chars[math.random(1, #chars)] end
+                    return table.concat(t, "\n")
+                end
+                lbl.Text = fill()
+                local y, spd = -260, math.random(90, 180)
+                while gui.Parent and lbl.Parent do
+                    y = y + spd * task.wait(0.05)
+                    if y > 480 then y = -320; spd = math.random(90, 180); lbl.Text = fill() end
+                    lbl.Position = UDim2.new(0, (i - 1) * cw - 2, 0, y)
+                end
+            end)
+        end
+    end)
+
     local top = Instance.new("Frame")
     top.Size = UDim2.new(1, 0, 0, 36)
     top.BackgroundColor3 = Color3.fromRGB(4, 7, 4)
@@ -209,46 +248,6 @@ local function build()
     status.ZIndex = 2
     status.Parent = scriptScroll
 
-    local canvas = Instance.new("Frame")
-    canvas.Size = UDim2.new(1, 0, 1, 0)
-    canvas.BackgroundTransparency = 1
-    canvas.ClipsDescendants = true
-    canvas.ZIndex = 0
-    canvas.Parent = main
-
-    task.delay(0.2, function()
-        local cols, cw = 45, 620 / 45
-        local chars = {"0","1","A","B","C","D","E","F","X","Z","S","T","R","H","I","N"}
-        for i = 1, cols do
-            task.spawn(function()
-                local lbl = Instance.new("TextLabel")
-                lbl.Size = UDim2.new(0, cw + 4, 1, 260)
-                lbl.Position = UDim2.new(0, (i - 1) * cw - 2, 0, -260)
-                lbl.BackgroundTransparency = 1
-                lbl.TextColor3 = Color3.fromRGB(0, 255, 65)
-                lbl.TextTransparency = math.random(25, 60) / 100
-                lbl.TextSize = 11
-                lbl.Font = Enum.Font.Code
-                lbl.TextXAlignment = Enum.TextXAlignment.Center
-                lbl.TextYAlignment = Enum.TextYAlignment.Top
-                lbl.ZIndex = 0
-                lbl.Parent = canvas
-                local function fill()
-                    local t = {}
-                    for _ = 1, 35 do t[#t+1] = chars[math.random(1, #chars)] end
-                    return table.concat(t, "\n")
-                end
-                lbl.Text = fill()
-                local y, spd = -260, math.random(90, 180)
-                while gui.Parent and lbl.Parent do
-                    y = y + spd * task.wait(0.05)
-                    if y > 480 then y = -320; spd = math.random(90, 180); lbl.Text = fill() end
-                    lbl.Position = UDim2.new(0, (i - 1) * cw - 2, 0, y)
-                end
-            end)
-        end
-    end)
-
     local function clearArea()
         for _, c in ipairs(scriptScroll:GetChildren()) do
             if c ~= sll and c ~= slp then c:Destroy() end
@@ -312,16 +311,17 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local bst = Instance.new("UIStroke", btn)
     bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.3
 
-    local prefetched = nil
+    -- FAST LOAD: Prefetch script source in the background
+    local prefetchedSource = nil
     task.spawn(function()
         if scriptInfo.Url then
             local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
             local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
             if ok and type(res) == "string" and #res > 10 and res:sub(1, 1) ~= "<" then
-                prefetched = res
+                prefetchedSource = res
             end
         else
-            prefetched = scriptInfo.Source
+            prefetchedSource = scriptInfo.Source
         end
     end)
 
@@ -401,15 +401,17 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     end
 
     local function run()
-        local code = prefetched or scriptInfo.Source
+        local code = prefetchedSource or scriptInfo.Source
+        -- Fallback fetch if prefetch failed or wasn't done yet
         if not code and scriptInfo.Url then
             local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
             local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
             if ok and type(res) == "string" and #res > 10 and res:sub(1, 1) ~= "<" then
                 code = res
-                prefetched = res
+                prefetchedSource = res
             end
         end
+
         if not code then warn("[Hub] no source for " .. tostring(scriptInfo.Name)) return false end
         local fn, err = loadstring(code, scriptInfo.Name or "script")
         if not fn then warn("[Hub] loadstring failed: " .. tostring(err)) return false end
@@ -417,6 +419,8 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
         local job = Cleanup.NewJob()
         state.Active = job
         local ctask = setmetatable({}, { __index = task })
+        
+        -- This fixes the eject button. If the job is killed, task.wait throws an error, instantly breaking the script loop.
         ctask.wait = function(...)
             if not job.Alive then error("Process Ejected", 0) end
             return task.wait(...)
@@ -447,7 +451,9 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
             return
         end
         if state.Active and state.Active.Alive then
-            state.Active.Kill(); state.Active = nil; setExec()
+            state.Active.Kill()
+            state.Active = nil
+            setExec()
         else
             if onExecute then onExecute() end
             if run() then setEject() end
@@ -457,7 +463,8 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     task.spawn(function()
         while card.Parent do
             if state.Active and not state.Active.Alive then
-                state.Active = nil; setExec()
+                state.Active = nil
+                setExec()
             end
             task.wait(0.5)
         end
@@ -515,20 +522,13 @@ local function buildGameButton(gameData, parent, onClick)
     else
         local numId = tonumber(gameData.GameId)
         if numId then
-            -- NATIVE method (Old way that worked)
-            local success, info = pcall(function()
-                return MarketplaceService:GetProductInfo(numId)
+            icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
+            task.spawn(function()
+                local ok, info = pcall(function()
+                    return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Game)
+                end)
+                if ok and info and info.Name then lbl.Text = info.Name end
             end)
-            if success and info then
-                if info.IconImageAssetId and info.IconImageAssetId ~= 0 then
-                    icon.Image = "rbxassetid://" .. tostring(info.IconImageAssetId)
-                else
-                    icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
-                end
-                if info.Name then lbl.Text = info.Name end
-            else
-                icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
-            end
         end
     end
 
