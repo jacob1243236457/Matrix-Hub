@@ -8,6 +8,7 @@ local CONFIG = CONFIG or {
     ["No Fall Damage"] = true,
     ["WalkSpeed"] = 50,
     ["Noclip"] = false,
+    ["Fly"] = false,
     ["Taser Bypass"] = true
 }
 
@@ -34,11 +35,12 @@ end
 if CONFIG["No Fall Damage"] and MovementService then
     local originalFallDamage = MovementService.FallDamage
     MovementService.FallDamage = function(self, damage)
-        originalFallDamage(self, 0)
+        originalFallDamage(self, 0) -- Always send 0 damage
     end
+    print("[CharMods] No Fall Damage Active ✔")
 end
 
--- 3. Godmode Heal
+-- 3. Godmode Heal (Spams Medkit)
 task.spawn(function()
 	while true do
 		if CONFIG["Godmode Heal"] then
@@ -46,23 +48,85 @@ task.spawn(function()
 			if character and character:FindFirstChildOfClass("Humanoid") then
 				pcall(function() MedkitService:Heal(character) end)
 			end
-			task.wait(0.2)
+			task.wait(0.2) -- Heals 5 times a second
 		else
 			task.wait(0.5)
 		end
 	end
 end)
 
--- 4. WalkSpeed & Noclip
+-- 4. Fly Hack Logic
+local flyBodyVelocity = nil
+
+local function startFly()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    
+    if flyBodyVelocity then flyBodyVelocity:Destroy() end
+    
+    local hrp = character.HumanoidRootPart
+    flyBodyVelocity = Instance.new("BodyVelocity")
+    flyBodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    flyBodyVelocity.Parent = hrp
+
+    local camera = workspace.CurrentCamera
+    
+    task.spawn(function()
+        while flyBodyVelocity and flyBodyVelocity.Parent and CONFIG["Fly"] do
+            local moveVec = Vector3.new(0, 0, 0)
+            local speed = 50
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVec = moveVec + camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVec = moveVec - camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVec = moveVec - camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVec = moveVec + camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveVec = moveVec + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveVec = moveVec - Vector3.new(0, 1, 0) end
+
+            if moveVec.Magnitude > 0 then
+                moveVec = moveVec.Unit * speed
+            end
+
+            flyBodyVelocity.Velocity = moveVec
+            task.wait()
+        end
+    end)
+end
+
+local function stopFly()
+    if flyBodyVelocity then
+        flyBodyVelocity:Destroy()
+        flyBodyVelocity = nil
+    end
+end
+
+task.spawn(function()
+    local flying = false
+    while true do
+        task.wait(0.5)
+        if CONFIG["Fly"] and not flying then
+            flying = true
+            startFly()
+        elseif not CONFIG["Fly"] and flying then
+            flying = false
+            stopFly()
+        end
+    end
+end)
+
+-- 5. WalkSpeed & Noclip Loop
 local function applyCharacterMods(character)
     local humanoid = character:WaitForChild("Humanoid", 5)
     if not humanoid then return end
     
     RunService.Heartbeat:Connect(function()
+        -- WalkSpeed
         if CONFIG["WalkSpeed"] and CONFIG["WalkSpeed"] > 16 then
             humanoid.WalkSpeed = CONFIG["WalkSpeed"]
         end
         
+        -- Noclip
         if CONFIG["Noclip"] then
             for _, part in character:GetDescendants() do
                 if part:IsA("BasePart") and part.CanCollide then
