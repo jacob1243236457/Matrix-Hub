@@ -1,9 +1,6 @@
---// =====================================================================
---// Ultimate Gun Mods (Spread, Recoil, Ammo, Rapid Fire, Multi-Bullet)
---// =====================================================================
-
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
+local CollectionService = game:GetService("CollectionService")
 
 local CONFIG = CONFIG or {
     ["Infinite Ammo"] = true,
@@ -11,6 +8,11 @@ local CONFIG = CONFIG or {
     ["No Spread"] = true,
     ["No Recoil"] = true,
     ["Bullets Per Shot"] = 3,
+    ["Instant Reload"] = true,
+    ["HitScan Bullets"] = true,
+    ["One Shot Kill"] = true,
+    ["Damage Through Walls"] = true,
+    ["Instant Grenade"] = true
 }
 
 -- Wait for Knit
@@ -21,6 +23,9 @@ while not Knit do
 end
 
 local FirearmController = Knit.GetController("FirearmController")
+local AbilityController = Knit.GetController("AbilityController")
+local GrenadeController = Knit.GetController("GrenadeController")
+local FirearmService = Knit.GetService("FirearmService")
 local hookedTools = {}
 
 -- Function to modify the weapon stats when equipped
@@ -34,11 +39,8 @@ local function applyWeaponStats()
             stats.Spread.Min = 0
             stats.Spread.Max = 0
         end
-        -- Sometimes spread is stored directly on the bullet data
-        if stats.Bullet and stats.Bullet.Spread then
+        if stats.Bullet then
             stats.Bullet.Spread = 0
-        end
-        if stats.Bullet and stats.Bullet.BuckshotSpread then
             stats.Bullet.BuckshotSpread = 0
         end
     end
@@ -54,19 +56,45 @@ local function applyWeaponStats()
         end
     end
 
-    -- 3. Bullets Per Shot (Multi-bullet)
+    -- 3. Bullets Per Shot / Multishot
     if CONFIG["Bullets Per Shot"] and CONFIG["Bullets Per Shot"] > 1 then
         if stats.Bullet then
             stats.Bullet.BulletFireCount = CONFIG["Bullets Per Shot"]
-            -- Force firemode to Buckshot so it shoots multiple pellets
+            -- Force buckshot mode to allow multiple pellets
             if FirearmController.FireModes and FirearmController.FireModes.Buckshot then
                 FirearmController.FireMode = FirearmController.FireModes.Buckshot
             end
         end
     end
+
+    -- 4. HitScan Bullets & Infinite Range
+    if CONFIG["HitScan Bullets"] and stats.Bullet then
+        stats.Bullet.Gravity = Vector3.new(0, 0, 0)
+        FirearmController.RangeHardLimit = 99999
+        if FirearmController.BulletType then
+            FirearmController.BulletType.Velocity = 100000
+        end
+    end
+
+    -- 5. One Shot Kill
+    if CONFIG["One Shot Kill"] and stats.Damages then
+        for key, value in pairs(stats.Damages) do
+            if value > 0 then
+                stats.Damages[key] = 100 -- Instantly kills on any body part
+            end
+        end
+    end
+
+    -- 6. Instant Reload Hooks
+    if CONFIG["Instant Reload"] then
+        -- Set ReloadBoost just in case
+        if AbilityController then
+            AbilityController.ReloadBoost = 1000
+        end
+    end
 end
 
--- 4. Infinite Ammo
+-- 7. Infinite Ammo
 local function hookFirearm(firearm)
 	if not firearm or not firearm:IsA("Tool") then return end
 	if hookedTools[firearm] then return end
@@ -86,12 +114,7 @@ local function hookFirearm(firearm)
 	end)
 end
 
--- 5. Apply Stats whenever a new weapon is equipped or stats change
-FirearmController.StatsChanged = function(self)
-    task.spawn(applyWeaponStats)
-end
-
--- Also loop every second just in case the game resets the stats
+-- 8. Apply Stats and Bypass Checks Loop
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -101,7 +124,48 @@ task.spawn(function()
     end
 end)
 
--- 6. Rapid Fire
+-- Hook CanDamage to bypass Team/Infected checks if Damage Through Walls is on
+if CONFIG["Damage Through Walls"] then
+    local originalCanDamage = FirearmController.CanDamage
+    FirearmController.CanDamage = function(self, target)
+        if not target then return true end
+        return true -- Always damage
+    end
+
+    local originalCanDamageCached = FirearmController.CanDamageCached
+    FirearmController.CanDamageCached = function(self, target)
+        return true
+    end
+    print("[GunMods] CanDamage bypass active (Damage through walls)")
+end
+
+-- 9. Instant Reload Override
+local originalReload = FirearmController.Reload
+FirearmController.Reload = function(self)
+	if not CONFIG["Instant Reload"] then
+        return originalReload(self)
+    end
+
+	if not self.Firearm or not self.Stats or not self.Stats.Bullet then return end
+
+	self.Reloading = true
+	task.spawn(function() self.Service:ReloadStart() end)
+
+    -- Instantly fill ammo
+	local capacity = self.Stats.Bullet.Capacity
+	self.Firearm:SetAttribute("AmmoLeft", capacity)
+
+	task.spawn(function() self.Service:ReloadEnd() end)
+
+	if self.MainUIController then
+		self.MainUIController:UpdateArmament()
+	end
+
+	self.Reloading = false
+	self.IsFiring = false
+end
+
+-- 10. Rapid Fire
 task.spawn(function()
 	while true do
 		if CONFIG["Rapid Fire"] and FirearmController.Firearm and FirearmController.Stats then
@@ -117,6 +181,42 @@ task.spawn(function()
 			task.wait(0.1)
 		end
 	end
+end)
+
+-- 11. Instant Grenade (Throws to nearest enemy)
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if CONFIG["Instant Grenade"] and GrenadeController then
+            local nearest = nil
+            local closestDist = math.huge
+            local myPos = LocalPlayer.Character and LocalPlayer.Character.PrimaryPart and LocalPlayer.Character.PrimaryPart.Position or Vector3.new()
+
+            for _, player in Players:GetPlayers() do
+                if player ~= LocalPlayer and player.Character and player.Character.PrimaryPart then
+                    local dist = (player.Character.PrimaryPart.Position - myPos).Magnitude
+                    if dist < closestDist then
+                        closestDist = dist
+                        nearest = player
+                    end
+                end
+            end
+
+            if nearest and nearest.Character.PrimaryPart then
+                local targetPos = nearest.Character.PrimaryPart.Position + Vector3.new(0, 5, 0)
+                local startPos = targetPos + Vector3.new(0, 50, 0)
+                local velocity = (targetPos - startPos).Unit * 500
+                
+                -- Fire remote directly to the server
+                local GrenadeService = Knit.GetService("GrenadeService")
+                if GrenadeService then
+                    pcall(function()
+                        GrenadeService.ThrowGrenade:Fire("Frag", CFrame.new(startPos), velocity)
+                    end)
+                end
+            end
+        end
+    end
 end)
 
 -- Scan for tools to apply Infinite Ammo
@@ -136,5 +236,3 @@ if LocalPlayer.Backpack then
 	scanTools(LocalPlayer.Backpack)
 	LocalPlayer.Backpack.ChildAdded:Connect(function(c) if c:IsA("Tool") then hookFirearm(c) end end)
 end
-
-print("[GunMods] Fully Loaded! (Spread, Recoil, Ammo, Rapid Fire, Multi-Bullet)")
