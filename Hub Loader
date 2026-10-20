@@ -16,11 +16,6 @@
         "Name": "Cobalt",
         "Url": "https://gitlab.com/upio/cobalt/-/releases/permalink/latest/downloads/Cobalt.luau",
         "Mode": "once"
-      },
-      {
-        "Name": "ESP",
-        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/ESP",
-        "Mode": "once"
       }
     ]
   },
