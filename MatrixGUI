@@ -1,4 +1,4 @@
--- MatrixGUI: builds the panel and returns all fields HubLoader needs.
+-- MatrixGUI: builds the panel, wires nothing external. Fast path: shell first, effects after.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -6,20 +6,51 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
 
+-- Resolve icon asset id from a place id, cached per place.
+local iconCache = {}
+local function resolveIconAsset(placeId)
+    local numId = tonumber(placeId)
+    if not numId then return nil end
+    if iconCache[numId] ~= nil then return iconCache[numId] end
+    local ok, info = pcall(function()
+        return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Asset)
+    end)
+    local assetId = ok and info and info.IconImageAssetId or nil
+    if not assetId or assetId == 0 then
+        ok, info = pcall(function()
+            return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Game)
+        end)
+        assetId = ok and info and info.IconImageAssetId or nil
+    end
+    iconCache[numId] = assetId and assetId ~= 0 and assetId or false
+    return iconCache[numId]
+end
+
+local function setIcon(icon, placeId)
+    local numId = tonumber(placeId)
+    if not numId then
+        icon.Image = "rbxassetid://6023426915"
+        return
+    end
+    -- Try the asset-id route first (works for every executor).
+    local assetId = resolveIconAsset(numId)
+    if assetId then
+        icon.Image = "rbxthumb://type=Asset&id=" .. tostring(assetId) .. "&w=150&h=150"
+        return
+    end
+    -- Fallback: direct place thumbnail.
+    icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
+end
+
 local function build()
-    -- Wipe any previous hub
     for _, container in ipairs({PlayerGui, CoreGui}) do
         for _, g in ipairs(container:GetChildren()) do
-            if g.Name == "MatrixLoadstringHub" and g:IsA("ScreenGui") then
-                g:Destroy()
-            end
+            if g.Name == "MatrixLoadstringHub" and g:IsA("ScreenGui") then g:Destroy() end
         end
     end
     if gethui then
         for _, g in ipairs(gethui():GetChildren()) do
-            if g.Name == "MatrixLoadstringHub" and g:IsA("ScreenGui") then
-                g:Destroy()
-            end
+            if g.Name == "MatrixLoadstringHub" and g:IsA("ScreenGui") then g:Destroy() end
         end
     end
 
@@ -28,8 +59,7 @@ local function build()
     gui.ResetOnSpawn = false
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     if syn and syn.protect_gui then
-        syn.protect_gui(gui)
-        gui.Parent = CoreGui
+        syn.protect_gui(gui); gui.Parent = CoreGui
     elseif gethui then
         gui.Parent = gethui()
     else
@@ -47,9 +77,7 @@ local function build()
     main.Parent = gui
     Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
     local ms = Instance.new("UIStroke", main)
-    ms.Color = Color3.fromRGB(0, 255, 65)
-    ms.Thickness = 1.5
-    ms.Transparency = 0.2
+    ms.Color = Color3.fromRGB(0, 255, 65); ms.Thickness = 1.5; ms.Transparency = 0.2
 
     local canvas = Instance.new("Frame")
     canvas.Size = UDim2.new(1, 0, 1, 0)
@@ -58,7 +86,8 @@ local function build()
     canvas.ZIndex = 0
     canvas.Parent = main
 
-    task.spawn(function()
+    -- Effects start AFTER a short delay so panel paints first.
+    task.delay(0.05, function()
         local cols, cw = 45, 620 / 45
         local chars = {"0","1","A","B","C","D","E","F","X","Z","S","T","R","H","I","N"}
         for i = 1, cols do
@@ -76,20 +105,15 @@ local function build()
                 lbl.ZIndex = 0
                 lbl.Parent = canvas
                 local function fill()
-                    local t = ""
-                    for _ = 1, 35 do t = t .. chars[math.random(1, #chars)] .. "\n" end
-                    return t
+                    local t = {}
+                    for _ = 1, 35 do t[#t+1] = chars[math.random(1, #chars)] end
+                    return table.concat(t, "\n")
                 end
                 lbl.Text = fill()
-                local y = -260
-                local spd = math.random(90, 180)
+                local y, spd = -260, math.random(90, 180)
                 while gui.Parent and lbl.Parent do
-                    y = y + spd * task.wait()
-                    if y > 480 then
-                        y = -320
-                        spd = math.random(90, 180)
-                        lbl.Text = fill()
-                    end
+                    y = y + spd * task.wait(0.05)
+                    if y > 480 then y = -320; spd = math.random(90, 180); lbl.Text = fill() end
                     lbl.Position = UDim2.new(0, (i - 1) * cw - 2, 0, y)
                 end
             end)
@@ -138,8 +162,7 @@ local function build()
     close.Parent = top
     Instance.new("UICorner", close).CornerRadius = UDim.new(0, 6)
     local cs = Instance.new("UIStroke", close)
-    cs.Color = Color3.fromRGB(0, 255, 65)
-    cs.Transparency = 0.4
+    cs.Color = Color3.fromRGB(0, 255, 65); cs.Transparency = 0.4
 
     local content = Instance.new("Frame")
     content.Size = UDim2.new(1, -16, 1, -48)
@@ -165,8 +188,7 @@ local function build()
     profile.Parent = sidebar
     Instance.new("UICorner", profile).CornerRadius = UDim.new(0, 8)
     local pfs = Instance.new("UIStroke", profile)
-    pfs.Color = Color3.fromRGB(0, 255, 65)
-    pfs.Transparency = 0.5
+    pfs.Color = Color3.fromRGB(0, 255, 65); pfs.Transparency = 0.5
 
     local avatar = Instance.new("ImageLabel")
     avatar.Size = UDim2.new(0, 40, 0, 40)
@@ -174,11 +196,8 @@ local function build()
     avatar.BackgroundColor3 = Color3.fromRGB(0, 40, 10)
     avatar.BorderSizePixel = 0
     pcall(function()
-        avatar.Image = Players:GetUserThumbnailAsync(
-            LocalPlayer.UserId,
-            Enum.ThumbnailType.HeadShot,
-            Enum.ThumbnailSize.Size150x150
-        )
+        avatar.Image = Players:GetUserThumbnailAsync(LocalPlayer.UserId,
+            Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
     end)
     avatar.ZIndex = 2
     avatar.Parent = profile
@@ -272,21 +291,14 @@ local function build()
     end
 
     return {
-        ScreenGui = gui,
-        MainFrame = main,
-        CloseButton = close,
-        GameListScroll = gameList,
-        GameListLayout = gll,
-        GameListPadding = glp,
-        ScriptScroll = scriptScroll,
-        ScriptLayout = sll,
-        ScriptPadding = slp,
-        StatusLabel = status,
-        ClearScriptArea = clearArea,
+        ScreenGui = gui, MainFrame = main, CloseButton = close,
+        GameListScroll = gameList, GameListLayout = gll, GameListPadding = glp,
+        ScriptScroll = scriptScroll, ScriptLayout = sll, ScriptPadding = slp,
+        StatusLabel = status, ClearScriptArea = clearArea,
     }
 end
 
--- Builds one script card, returns { Frame, State, Run, SetExec, SetEject }.
+-- Card with background prefetch so EXECUTE is instant.
 local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local mode = (scriptInfo.Mode or "toggle"):lower()
     local cfgCount = 0
@@ -305,8 +317,7 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     card.Parent = parent
     Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
     local st = Instance.new("UIStroke", card)
-    st.Color = Color3.fromRGB(0, 255, 65)
-    st.Transparency = 0.5
+    st.Color = Color3.fromRGB(0, 255, 65); st.Transparency = 0.5
 
     local nameL = Instance.new("TextLabel")
     nameL.Size = UDim2.new(1, -95, 0, 44)
@@ -335,8 +346,28 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     btn.Parent = card
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     local bst = Instance.new("UIStroke", btn)
-    bst.Color = Color3.fromRGB(0, 255, 65)
-    bst.Transparency = 0.3
+    bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.3
+
+    -- Prefetch source in the background the moment the card exists.
+    local prefetched, prefetching = nil, false
+    local function prefetch()
+        if prefetched or prefetching then return end
+        prefetching = true
+        if not scriptInfo.Url then
+            prefetched = scriptInfo.Source
+            prefetching = false
+            return
+        end
+        task.spawn(function()
+            local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
+            local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
+            if ok and type(res) == "string" and #res > 10 and res:sub(1, 1) ~= "<" then
+                prefetched = res
+            end
+            prefetching = false
+        end)
+    end
+    task.spawn(prefetch)
 
     if type(scriptInfo.configValues) == "table" and cfgCount > 0 then
         local cont = Instance.new("Frame")
@@ -346,8 +377,7 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
         cont.ZIndex = 2
         cont.Parent = card
         local ll = Instance.new("UIListLayout", cont)
-        ll.SortOrder = Enum.SortOrder.LayoutOrder
-        ll.Padding = UDim.new(0, 4)
+        ll.SortOrder = Enum.SortOrder.LayoutOrder; ll.Padding = UDim.new(0, 4)
 
         for key, val in pairs(scriptInfo.configValues) do
             local row = Instance.new("Frame")
@@ -415,12 +445,16 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     end
 
     local function run()
-        local code = scriptInfo.Source
-        if scriptInfo.Url then
-            local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
-            local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
-            if ok and type(res) == "string" and #res > 10 and res:sub(1, 1) ~= "<" then
-                code = res
+        -- Use prefetched source; fetch only if prefetch failed or not done yet.
+        local code = prefetched or scriptInfo.Source
+        if not code then
+            if scriptInfo.Url then
+                local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
+                local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
+                if ok and type(res) == "string" and #res > 10 and res:sub(1, 1) ~= "<" then
+                    code = res
+                    prefetched = res
+                end
             end
         end
         if not code then
@@ -435,7 +469,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
 
         local job = Cleanup.NewJob()
         state.Active = job
-
         local ctask = setmetatable({}, { __index = task })
         ctask.wait = function(...)
             if not job.Alive then error("Process Ejected", 0) end
@@ -457,11 +490,9 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
                 warn("[Hub] " .. tostring(scriptInfo.Name) .. ": " .. tostring(runErr))
             end
             if job.Alive and mode == "toggle" then
-                setExec()
-                state.Active = nil
+                setExec(); state.Active = nil
             end
         end)
-
         return true
     end
 
@@ -470,16 +501,11 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
             if onExecute then onExecute() end
             run()
             btn.Text = "RAN"
-            task.delay(1, function()
-                if btn.Parent then setExec() end
-            end)
+            task.delay(1, function() if btn.Parent then setExec() end end)
             return
         end
-
         if state.Active and state.Active.Alive then
-            state.Active.Kill()
-            state.Active = nil
-            setExec()
+            state.Active.Kill(); state.Active = nil; setExec()
         else
             if onExecute then onExecute() end
             if run() then setEject() end
@@ -489,23 +515,15 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     task.spawn(function()
         while card.Parent do
             if state.Active and not state.Active.Alive then
-                state.Active = nil
-                setExec()
+                state.Active = nil; setExec()
             end
             task.wait(0.5)
         end
     end)
 
-    return {
-        Frame = card,
-        State = state,
-        Run = run,
-        SetExec = setExec,
-        SetEject = setEject,
-    }
+    return { Frame = card, State = state, Run = run, SetExec = setExec, SetEject = setEject }
 end
 
--- Sidebar game button with icon fallback.
 local function buildGameButton(gameData, parent, onClick)
     local isUniversal = false
     if typeof(gameData.GameId) == "string" then
@@ -525,8 +543,7 @@ local function buildGameButton(gameData, parent, onClick)
     btn.Parent = parent
     Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
     local bst = Instance.new("UIStroke", btn)
-    bst.Color = Color3.fromRGB(0, 255, 65)
-    bst.Transparency = 0.7
+    bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.7
 
     local icon = Instance.new("ImageLabel")
     icon.Size = UDim2.new(0, 36, 0, 36)
@@ -556,14 +573,18 @@ local function buildGameButton(gameData, parent, onClick)
     else
         local numId = tonumber(gameData.GameId)
         if numId then
+            -- Show a fast local fallback first so something always renders.
             icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
+            -- Resolve the asset id in the background and swap in.
             task.spawn(function()
-                local ok, info = pcall(function()
-                    return MarketplaceService:GetProductInfo(numId)
-                end)
-                if ok and info then
-                    if info.Name then lbl.Text = info.Name end
+                local asset = resolveIconAsset(numId)
+                if asset then
+                    icon.Image = "rbxthumb://type=Asset&id=" .. tostring(asset) .. "&w=150&h=150"
                 end
+                local ok, info = pcall(function()
+                    return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Game)
+                end)
+                if ok and info and info.Name then lbl.Text = info.Name end
             end)
         end
     end
@@ -575,17 +596,10 @@ end
 local gui = build()
 
 return {
-    ScreenGui = gui.ScreenGui,
-    MainFrame = gui.MainFrame,
-    CloseButton = gui.CloseButton,
-    GameListScroll = gui.GameListScroll,
-    GameListLayout = gui.GameListLayout,
-    GameListPadding = gui.GameListPadding,
-    ScriptScroll = gui.ScriptScroll,
-    ScriptLayout = gui.ScriptLayout,
-    ScriptPadding = gui.ScriptPadding,
-    StatusLabel = gui.StatusLabel,
-    ClearScriptArea = gui.ClearScriptArea,
-    BuildCard = buildCard,
-    BuildGameButton = buildGameButton,
+    ScreenGui = gui.ScreenGui, MainFrame = gui.MainFrame, CloseButton = gui.CloseButton,
+    GameListScroll = gui.GameListScroll, GameListLayout = gui.GameListLayout,
+    GameListPadding = gui.GameListPadding, ScriptScroll = gui.ScriptScroll,
+    ScriptLayout = gui.ScriptLayout, ScriptPadding = gui.ScriptPadding,
+    StatusLabel = gui.StatusLabel, ClearScriptArea = gui.ClearScriptArea,
+    BuildCard = buildCard, BuildGameButton = buildGameButton,
 }
