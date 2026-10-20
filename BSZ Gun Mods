@@ -1,0 +1,77 @@
+--[[
+    Blacksite Zeta — Gun Modifications (Hub Integrated)
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local function getCombat()
+    local ps = Players.LocalPlayer:FindFirstChildOfClass("PlayerScripts")
+    local mod = ps and ps:FindFirstChild("ClientCombatController")
+    mod = mod and mod:FindFirstChild("Modules")
+    mod = mod and mod:FindFirstChild("Weapons")
+    mod = mod and mod:FindFirstChild("Combat")
+    if not mod then return nil end
+    local ok, Combat = pcall(require, mod)
+    if ok and Combat and Combat.CurrentWeapons then
+        return Combat
+    end
+    return nil
+end
+
+local function applyMods(weapon)
+    if not weapon or type(weapon) ~= "table" then return end
+
+    local activeConfig = rawget(_G, "CONFIG") or CONFIG or {
+        FireDelaySeconds = 0.01,
+        SpreadRadius = 0,
+        CamRecoilMin = Vector3.new(0, 0, 0),
+        CamRecoilMax = Vector3.new(0, 0, 0),
+        InfiniteAmmo = true,
+        NumberBullets = 3,
+    }
+
+    weapon.FireDelaySeconds = activeConfig.FireDelaySeconds or 0.01
+
+    if weapon.Data and type(weapon.Data) == "table" then
+        weapon.Data.SpreadRadius = activeConfig.SpreadRadius or 0
+        weapon.Data.CamRecoilMin = activeConfig.CamRecoilMin or Vector3.new(0, 0, 0)
+        weapon.Data.CamRecoilMax = activeConfig.CamRecoilMax or Vector3.new(0, 0, 0)
+    end
+
+    if activeConfig.InfiniteAmmo then
+        if weapon.ClipSize and weapon.ClipSize > 0 then
+            if weapon.Ammo < weapon.ClipSize then
+                weapon.Ammo = weapon.ClipSize
+            end
+        else
+            weapon.ClipSize = 999
+            weapon.Ammo = 999
+        end
+    end
+
+    weapon.NumberBullets = activeConfig.NumberBullets or 3
+end
+
+if shared.BZ_GunMods_Connection then
+    shared.BZ_GunMods_Connection:Disconnect()
+end
+
+local connection = RunService.Heartbeat:Connect(function()
+    local Combat = getCombat()
+    if not Combat then return end
+    for _, weapon in pairs(Combat.CurrentWeapons) do
+        applyMods(weapon)
+    end
+end)
+
+shared.BZ_GunMods_Connection = connection
+
+if type(cleanup) == "function" then
+    cleanup(function()
+        if shared.BZ_GunMods_Connection then
+            shared.BZ_GunMods_Connection:Disconnect()
+            shared.BZ_GunMods_Connection = nil
+        end
+    end)
+end
