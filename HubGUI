@@ -1,5 +1,5 @@
 --[[
-    ProHub GUI
+    ProHub GUI & Cleanup
     Expects shared.ProHubConfig to be set by HubLoader before execution.
 ]]
 
@@ -24,6 +24,16 @@ local function make(className, name, parent, props)
 	inst.Parent = parent
 	return inst
 end
+
+-- ===================== Cleanup Logic =====================
+local RunningScripts = {}
+local function KillAllScripts()
+    for _, thread in ipairs(RunningScripts) do
+        pcall(function() task.cancel(thread) end)
+    end
+    RunningScripts = {}
+end
+_G.ProHubCleanup = KillAllScripts
 
 -- ===================== Hub (ScreenGui) =====================
 local Hub = make("ScreenGui", "ProHub", playerGui, {
@@ -88,8 +98,8 @@ make("UICorner", "ExitCorner", ExitButton, { CornerRadius = UDim.new(0, 5) })
 make("UIStroke", "ExitStroke", ExitButton, { Thickness = 1, Color = Color3.fromRGB(60, 60, 60) })
 
 ExitButton.MouseButton1Click:Connect(function()
+	KillAllScripts()
 	Hub:Destroy()
-	if _G.ProHubCleanup then _G.ProHubCleanup() end
 end)
 
 -- Sidebar
@@ -175,15 +185,6 @@ local ScriptsContainer = make("Frame", "ScriptsContainer", Main, {
 	BackgroundTransparency = 1,
 	ZIndex = 1,
 })
-
--- Execution logic (requires Cleanup logic if you want ejection, but here is basic)
-local runningScripts = {}
-_G.ProHubCleanup = function()
-    for _, thread in pairs(runningScripts) do
-        pcall(task.cancel, thread)
-    end
-    runningScripts = {}
-end
 
 local function CreateGameTab(gameData)
 	local isUniversal = false
@@ -354,8 +355,8 @@ local function CreateGameTab(gameData)
 		end
 
 		ExecBtn.MouseButton1Click:Connect(function()
-			-- Kill previous running scripts
-			_G.ProHubCleanup()
+			-- Cleanup old scripts before executing
+			KillAllScripts()
 
 			local code = scriptInfo.Source
 			if scriptInfo.Url then
@@ -378,7 +379,7 @@ local function CreateGameTab(gameData)
 						    warn("[ProHub] Error running " .. scriptInfo.Name .. ": " .. tostring(execErr))
 					    end
 					end)
-					table.insert(runningScripts, thread)
+					table.insert(RunningScripts, thread)
 				else
 					warn("[ProHub] Loadstring error for " .. scriptInfo.Name .. ": " .. tostring(err))
 				end
