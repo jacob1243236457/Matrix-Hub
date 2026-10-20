@@ -1,8 +1,14 @@
-print("[BZ GunMods] VERSION 3 — no-pairs-on-instances")
+print("[BZ GunMods] VERSION 4 — IsWeapon-based discovery")
 
 --[[
-    Blacksite Zeta — Gun Modifications (v3)
-    Works without weapon equipped. Applies to all weapons found.
+    Blacksite Zeta — Gun Modifications (v4)
+    ======================================
+    Weapon instances live under the Tool and are marked with IsWeapon.
+    We scan every Tool in Backpack + Character, find any child (or the
+    tool itself) that looks like a weapon instance, and mod it.
+
+    No pairs() is ever called on an Instance — only on tables and on
+    arrays returned by GetChildren().
 ]]
 
 local Players = game:GetService("Players")
@@ -32,27 +38,14 @@ local function resolveConfig()
 end
 
 -- ════════════════════════════════════════════════════════════════
--- COMBAT MODULE
--- ════════════════════════════════════════════════════════════════
-
-local function getCombat()
-    local ps = LocalPlayer:FindFirstChildOfClass("PlayerScripts")
-    local mod = ps and ps:FindFirstChild("ClientCombatController")
-    mod = mod and mod:FindFirstChild("Modules")
-    mod = mod and mod:FindFirstChild("Weapons")
-    mod = mod and mod:FindFirstChild("Combat")
-    if not mod then return nil end
-    local ok, Combat = pcall(require, mod)
-    if ok and Combat and Combat.CurrentWeapons then return Combat end
-    return nil
-end
-
--- ════════════════════════════════════════════════════════════════
--- WEAPON DETECTION / APPLICATION
+-- WEAPON DETECTION — IsWeapon is the primary marker
 -- ════════════════════════════════════════════════════════════════
 
 local function looksLikeWeapon(t)
     if type(t) ~= "table" then return false end
+    -- Primary: game-specific marker
+    if t.IsWeapon == true then return true end
+    -- Fallbacks (some weapon tables may omit IsWeapon but still match)
     if t.FireDelaySeconds ~= nil then return true end
     if t.NumberBullets ~= nil then return true end
     if t.Ammo ~= nil and t.ClipSize ~= nil then return true end
@@ -65,15 +58,22 @@ local function looksLikeWeapon(t)
     return false
 end
 
+-- ════════════════════════════════════════════════════════════════
+-- APPLY MODIFICATIONS
+-- ════════════════════════════════════════════════════════════════
+
 local function applyMods(weapon, cfg)
     if type(weapon) ~= "table" then return end
+
     weapon.FireDelaySeconds = cfg.FireDelaySeconds
+
     if type(weapon.Data) == "table" then
         weapon.Data.SpreadRadius = cfg.SpreadRadius
         weapon.Data.CamRecoilMin = cfg.CamRecoilMin
         weapon.Data.CamRecoilMax = cfg.CamRecoilMax
         weapon.Data.NumberBullets = cfg.NumberBullets
     end
+
     if cfg.InfiniteAmmo then
         if weapon.ClipSize and weapon.ClipSize > 0 then
             if weapon.Ammo < weapon.ClipSize then weapon.Ammo = weapon.ClipSize end
@@ -82,113 +82,104 @@ local function applyMods(weapon, cfg)
             weapon.Ammo = 999
         end
     end
+
     weapon.NumberBullets = cfg.NumberBullets
 end
 
 -- ════════════════════════════════════════════════════════════════
--- DISCOVERY — every loop uses ipairs/GetChildren, never pairs on Instance
+-- DISCOVERY — walk each Tool, find the IsWeapon table underneath
 -- ════════════════════════════════════════════════════════════════
 
+-- Return the weapon table held by a Tool, or nil.
+-- A "Tool" holds it either:
+--   • directly on the tool (tool.IsWeapon == true and tool has weapon fields), or
+--   • as the .Value of a child ValueBase whose value is a table, or
+--   • as an attribute named like "Weapon" / "Instance" / "Data", or
+--   • as any attribute whose value is a table with IsWeapon == true.
+local function findWeaponInTool(tool)
+    if typeof(tool) ~= "Instance" or not tool:IsA("Tool") then return nil end
+
+    -- 1. Attribute scan
+    local okA, attrs = pcall(function() return tool:GetAttributes() end)
+    if okA and type(attrs) == "table" then
+        for _, v in pairs(attrs) do
+            if looksLikeWeapon(v) then return v end
+        end
+    end
+
+    -- 2. ValueBase children
+    local kids = tool:GetChildren()
+    for i = 1, #kids do
+        local child = kids[i]
+        if typeof(child) == "Instance" and child:IsA("ValueBase") then
+            local ok, v = pcall(function() return child.Value end)
+            if ok and looksLikeWeapon(v) then
+                return v
+            end
+        end
+    end
+
+    -- 3. Does the Tool object itself expose the weapon table?
+    --    Some executors allow reading instance-mirrored tables via tool.X.
+    --    We don't know which field, so we probe a short list of likely names.
+    for _, name in ipairs({ "Weapon", "WeaponInstance", "Instance", "Data", "WeaponData", "Config" }) do
+        local ok, v = pcall(function() return tool[name] end)
+        if ok and looksLikeWeapon(v) then
+            return v
+        end
+    end
+
+    return nil
+end
+
+-- Walk a container (Backpack or Character) and return all weapon tables.
+local function collectWeaponsIn(container, out)
+    if typeof(container) ~= "Instance" then return end
+
+    local kids = container:GetChildren()
+    for i = 1, #kids do
+        local child = kids[i]
+        if typeof(child) == "Instance" and child:IsA("Tool") then
+            local w = findWeaponInTool(child)
+            if w then
+                table.insert(out, w)
+            end
+        end
+    end
+end
+
+-- Persistent cache so backpack weapons keep getting modded even if
+-- their Tool gets momentarily detached.
 local weaponCache = setmetatable({}, { __mode = "k" })
 local cacheOrder = {}
 
-local function remember(weapon)
-    if type(weapon) ~= "table" then return end
-    if weaponCache[weapon] then return end
-    weaponCache[weapon] = true
-    table.insert(cacheOrder, weapon)
+local function remember(w)
+    if type(w) ~= "table" then return end
+    if weaponCache[w] then return end
+    weaponCache[w] = true
+    table.insert(cacheOrder, w)
     if #cacheOrder > 256 then
         local drop = table.remove(cacheOrder, 1)
         weaponCache[drop] = nil
     end
 end
 
--- Accept only a table. Never pairs() an Instance.
-local function harvestFromValue(t, out)
-    if type(t) ~= "table" then return end
-    if looksLikeWeapon(t) then
-        table.insert(out, t)
-        return
-    end
-    -- only recurse through table-typed values
-    for _, v in pairs(t) do
-        if type(v) == "table" and looksLikeWeapon(v) then
-            table.insert(out, v)
-        end
-    end
-end
-
--- Scan a Tool Instance via GetChildren() only.
-local function harvestFromTool(tool, out)
-    if typeof(tool) ~= "Instance" or not tool:IsA("Tool") then return end
-
-    -- 1. Any attribute on the tool that is a table
-    local okAttrs, attrs = pcall(function() return tool:GetAttributes() end)
-    if okAttrs and type(attrs) == "table" then
-        for _, v in pairs(attrs) do
-            harvestFromValue(v, out)
-        end
-    end
-
-    -- 2. GetChildren() — always returns an array table
-    local children = tool:GetChildren()  -- safe
-    for _, child in ipairs(children) do
-        -- ValueBase values could hold a weapon table on some executors
-        if typeof(child) == "Instance" and child:IsA("ValueBase") then
-            local ok, v = pcall(function() return child.Value end)
-            if ok then harvestFromValue(v, out) end
-        end
-    end
-end
-
-local function gatherWeapons(Combat)
+local function gatherWeapons()
     local found = {}
 
-    -- 1. Combat.CurrentWeapons — only iterate if it's genuinely a table
-    if Combat and type(Combat.CurrentWeapons) == "table" then
-        for _, w in pairs(Combat.CurrentWeapons) do
-            harvestFromValue(w, found)
-        end
-    end
-
-    -- 2. Other Combat sub-tables
-    if Combat then
-        local names = { "Weapons", "WeaponInstances", "AllWeapons", "WeaponCache" }
-        for i = 1, #names do
-            local t = Combat[names[i]]
-            if type(t) == "table" then
-                for _, w in pairs(t) do
-                    harvestFromValue(w, found)
-                end
-            end
-        end
-    end
-
-    -- 3. Backpack — GetChildren() is safe
+    -- 1. Backpack
     local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
     if backpack then
-        local kids = backpack:GetChildren()
-        for i = 1, #kids do
-            local obj = kids[i]
-            if typeof(obj) == "Instance" and obj:IsA("Tool") then
-                harvestFromTool(obj, found)
-            end
-        end
+        collectWeaponsIn(backpack, found)
     end
 
-    -- 4. Character — GetChildren() is safe
+    -- 2. Character (equipped)
     local char = LocalPlayer.Character
     if char then
-        local kids = char:GetChildren()
-        for i = 1, #kids do
-            local obj = kids[i]
-            if typeof(obj) == "Instance" and obj:IsA("Tool") then
-                harvestFromTool(obj, found)
-            end
-        end
+        collectWeaponsIn(char, found)
     end
 
-    -- 5. Cache
+    -- 3. Cache (weapons discovered previously)
     for i = 1, #cacheOrder do
         local w = cacheOrder[i]
         if weaponCache[w] and type(w) == "table" then
@@ -199,6 +190,7 @@ local function gatherWeapons(Combat)
     for i = 1, #found do
         remember(found[i])
     end
+
     return found
 end
 
@@ -214,8 +206,7 @@ end
 shared.BZ_GunMods_Connection = RunService.Heartbeat:Connect(function()
     local ok, err = pcall(function()
         local cfg = resolveConfig()
-        local Combat = getCombat()
-        local weapons = gatherWeapons(Combat)
+        local weapons = gatherWeapons()
         for i = 1, #weapons do
             applyMods(weapons[i], cfg)
         end
@@ -237,16 +228,16 @@ shared.BZ_GunMods_Stop = function()
 end
 
 shared.BZ_GunMods_Status = function()
-    local Combat = getCombat()
     local cfg = resolveConfig()
     local weapons = {}
     local seen = {}
-    local list = gatherWeapons(Combat)
+    local list = gatherWeapons()
     for i = 1, #list do
         local w = list[i]
         if not seen[w] then
             seen[w] = true
             table.insert(weapons, {
+                isWeapon = w.IsWeapon,
                 fireDelay = w.FireDelaySeconds,
                 numBullets = w.NumberBullets,
                 ammo = w.Ammo,
@@ -258,6 +249,10 @@ shared.BZ_GunMods_Status = function()
     end
     return { active = shared.BZ_GunMods_Connection ~= nil, config = cfg, weapons = weapons }
 end
+
+-- ════════════════════════════════════════════════════════════════
+-- AC BYPASS CHECK + cleanup hook
+-- ════════════════════════════════════════════════════════════════
 
 local acActive = shared.BZ_AC_BYPASS ~= nil and type(shared.BZ_AC_Arsenal_Snapshots) == "table"
 if not acActive then
