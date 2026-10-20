@@ -1,8 +1,8 @@
 --// =====================================================================
---// Silent Aim v6 — Osiris Collective & Research Subject Friendly Check
+--// Silent Aim v7 — Facility Hostile Fix + Wall Penetration Check
 --// =====================================================================
 
-print("[SilentAim] LOADED v6")
+print("[SilentAim] LOADED v7")
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -43,7 +43,7 @@ local function isAimbotActive()
 end
 
 -- =====================================================================
--- SMART TEAM CHECK (Osiris & Research are friendly unless infected)
+-- SMART TEAM CHECK (Fixed Facility targeting)
 -- =====================================================================
 local function canTarget(player)
     local myTeam = LocalPlayer.Team
@@ -56,41 +56,34 @@ local function canTarget(player)
     -- 1. Exclude Choosing entirely
     if theirTeamName == "Choosing" then return false end
 
-    -- 2. Global Infected Check (If they are infected, you can always target them)
+    -- 2. Global Infected Check (Target ANY infected person, even teammates)
     if player:GetAttribute("IsInfected") then
         return true
     end
 
     -- 3. Osiris Collective Logic
     if myTeamName == "Osiris Collective" then
-        -- Friendly with other Osiris
         if theirTeamName == "Osiris Collective" then return false end
-        -- Friendly with Research Subject (unless they are infected, which was checked above)
         if theirTeamName == "Research Subject" then return false end
-        -- Hostile to Facility teams
         return true
     end
 
     -- 4. Research Subject Logic
     if myTeamName == "Research Subject" then
-        -- Friendly with other Research Subjects
         if theirTeamName == "Research Subject" then return false end
-        -- Friendly with Osiris Collective (unless they are infected, checked above)
         if theirTeamName == "Osiris Collective" then return false end
-        -- Hostile to Facility teams
         return true
     end
 
-    -- 5. Facility Teams Logic
+    -- 5. Facility Teams Logic (FRU, Security, etc.)
     local isFacility = (myTeamName == "Facility Response Unit" or myTeamName == "Biohazard Containment Unit" or myTeamName == "Centum Security" or myTeamName == "Domestic Security Agency" or myTeamName == "Facility Oversight" or myTeamName == "Health & Research" or myTeamName == "Administrative Committee")
     
     if isFacility then
         local theirIsFacility = (theirTeamName == "Facility Response Unit" or theirTeamName == "Biohazard Containment Unit" or theirTeamName == "Centum Security" or theirTeamName == "Domestic Security Agency" or theirTeamName == "Facility Oversight" or theirTeamName == "Health & Research" or theirTeamName == "Administrative Committee")
         
-        -- Friendly with other Facility teams
         if theirIsFacility then return false end
 
-        -- Hostile to Research Subjects ONLY if they are marked KOS
+        -- If they are on Research Subject, check if they are KOS
         if theirTeamName == "Research Subject" then
             local char = player.Character
             if char then
@@ -105,9 +98,51 @@ local function canTarget(player)
             end
             return false
         end
+
+        -- If they are ANY other team (like Osiris), they are hostile
+        return true
     end
 
     return false
+end
+
+-- =====================================================================
+-- WALL CHECK (Shoot through penetrable materials)
+-- =====================================================================
+local function canSee(targetPart)
+    if not targetPart then return false end
+    
+    local origin = Camera.CFrame.Position
+    local direction = (targetPart.Position - origin)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, targetPart.Parent}
+    raycastParams.IgnoreWater = true
+    
+    local rayResult = workspace:Raycast(origin, direction, raycastParams)
+    
+    if rayResult then
+        -- If the ray hits a wall, check if the material is penetrable
+        local penetrableMaterials = {
+            Enum.Material.Glass,
+            Enum.Material.Plastic,
+            Enum.Material.Wood,
+            Enum.Material.WoodPlanks,
+            Enum.Material.SmoothPlastic,
+            Enum.Material.Fabric,
+            Enum.Material.ForceField
+        }
+        
+        for _, mat in ipairs(penetrableMaterials) do
+            if rayResult.Material == mat then
+                return true -- Can shoot through this wall
+            end
+        end
+        
+        return false -- Wall is solid (Metal, Concrete, etc.)
+    end
+    
+    return true -- No wall in the way
 end
 
 -- =====================================================================
@@ -127,8 +162,10 @@ local function getTargetHead()
                     if onScreen then
                         local distToCenter = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
                         if distToCenter < shortestDist then
-                            shortestDist = distToCenter
-                            closest = head
+                            if canSee(head) then
+                                shortestDist = distToCenter
+                                closest = head
+                            end
                         end
                     end
                 end
