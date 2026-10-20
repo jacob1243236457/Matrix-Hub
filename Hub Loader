@@ -67,12 +67,14 @@
         "Name": "Gun Mods",
         "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/CLFR%20Gun%20Mods",
         "configValues": {
-    ["Infinite Ammo"] = true,
-    ["Rapid Fire"] = true,
-    ["No Spread"] = true,
-    ["No Recoil"] = true,
-    ["Bullets Per Shot"] = 3,
-}
+          "Infinite Ammo": true,
+          "Rapid Fire": true,
+          "Full Auto": true,
+          "No Spread": true,
+          "No Recoil": true,
+          "Instant Reload": true,
+          "Firemode": "Auto"
+        }
       },
       {
         "Name": "Melee Mods",
