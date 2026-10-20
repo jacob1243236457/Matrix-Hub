@@ -1,12 +1,16 @@
+--// =====================================================================
+--// Ultimate Gun Mods (Spread, Recoil, Ammo, Rapid Fire, Multi-Bullet)
+--// =====================================================================
+
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local UserInputService = game:GetService("UserInputService")
 
 local CONFIG = CONFIG or {
     ["Infinite Ammo"] = true,
     ["Rapid Fire"] = true,
-    ["Silent Aim"] = true,
+    ["No Spread"] = true,
+    ["No Recoil"] = true,
+    ["Bullets Per Shot"] = 3,
 }
 
 -- Wait for Knit
@@ -18,9 +22,51 @@ end
 
 local FirearmController = Knit.GetController("FirearmController")
 local hookedTools = {}
-local rapidFiring = false
 
--- 1. Infinite Ammo Hook
+-- Function to modify the weapon stats when equipped
+local function applyWeaponStats()
+    local stats = FirearmController.Stats
+    if not stats then return end
+
+    -- 1. No Spread
+    if CONFIG["No Spread"] then
+        if stats.Spread then
+            stats.Spread.Min = 0
+            stats.Spread.Max = 0
+        end
+        -- Sometimes spread is stored directly on the bullet data
+        if stats.Bullet and stats.Bullet.Spread then
+            stats.Bullet.Spread = 0
+        end
+        if stats.Bullet and stats.Bullet.BuckshotSpread then
+            stats.Bullet.BuckshotSpread = 0
+        end
+    end
+
+    -- 2. No Recoil
+    if CONFIG["No Recoil"] then
+        if stats.Recoil then
+            stats.Recoil.Max = Vector3.new(0, 0, 0)
+        end
+        if stats.Shake then
+            stats.Shake.Magnitude = 0
+            stats.Shake.Roughness = 0
+        end
+    end
+
+    -- 3. Bullets Per Shot (Multi-bullet)
+    if CONFIG["Bullets Per Shot"] and CONFIG["Bullets Per Shot"] > 1 then
+        if stats.Bullet then
+            stats.Bullet.BulletFireCount = CONFIG["Bullets Per Shot"]
+            -- Force firemode to Buckshot so it shoots multiple pellets
+            if FirearmController.FireModes and FirearmController.FireModes.Buckshot then
+                FirearmController.FireMode = FirearmController.FireModes.Buckshot
+            end
+        end
+    end
+end
+
+-- 4. Infinite Ammo
 local function hookFirearm(firearm)
 	if not firearm or not firearm:IsA("Tool") then return end
 	if hookedTools[firearm] then return end
@@ -38,9 +84,42 @@ local function hookFirearm(firearm)
 			task.wait(0.05)
 		end
 	end)
-	print("[GunMods] Infinite Ammo hooked on: " .. firearm.Name)
 end
 
+-- 5. Apply Stats whenever a new weapon is equipped or stats change
+FirearmController.StatsChanged = function(self)
+    task.spawn(applyWeaponStats)
+end
+
+-- Also loop every second just in case the game resets the stats
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if FirearmController.Firearm then
+            applyWeaponStats()
+        end
+    end
+end)
+
+-- 6. Rapid Fire
+task.spawn(function()
+	while true do
+		if CONFIG["Rapid Fire"] and FirearmController.Firearm and FirearmController.Stats then
+			local firearm = FirearmController.Firearm
+			local ammo = firearm:GetAttribute("AmmoLeft")
+			if ammo and ammo > 0 then
+				pcall(function()
+					FirearmController:Fire()
+				end)
+			end
+			task.wait(0.01) -- Spam fire
+		else
+			task.wait(0.1)
+		end
+	end
+end)
+
+-- Scan for tools to apply Infinite Ammo
 local function scanTools(parent)
 	for _, child in parent:GetChildren() do
 		if child:IsA("Tool") then hookFirearm(child) end
@@ -58,44 +137,4 @@ if LocalPlayer.Backpack then
 	LocalPlayer.Backpack.ChildAdded:Connect(function(c) if c:IsA("Tool") then hookFirearm(c) end end)
 end
 
--- 2. Rapid Fire Hook
-local function rapidFireLoop()
-	while rapidFiring do
-		local firearm = FirearmController.Firearm
-		local stats = FirearmController.Stats
-		if firearm and stats then
-			local ammo = firearm:GetAttribute("AmmoLeft")
-			if ammo and ammo > 0 then
-				pcall(function()
-					FirearmController:Fire()
-				end)
-			end
-		end
-		task.wait(0.01) -- Bypasses RPM limit
-	end
-end
-
--- 3. Silent Aim / Hitbox Expansion
--- This slightly expands the hitbox of the FirearmController's raycasts so you hit the torso easily
-task.spawn(function()
-	while true do
-		task.wait(1)
-		if CONFIG["Silent Aim"] and FirearmController.Caster then
-			-- Force the controller to ignore the head hitbox and aim at the torso
-			local oldCaster = FirearmController.Caster.RayHit
-			if oldCaster then
-				-- (If the controller uses Caster.RayHit, we can manipulate the hit part here if needed)
-			end
-		end
-	end
-end)
-
--- Keybinds
-UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.F6 then
-		rapidFiring = not rapidFiring
-		print("[GunMods] Rapid Fire: " .. (rapidFiring and "ON" or "OFF"))
-		if rapidFiring then task.spawn(rapidFireLoop) end
-	end
-end)
+print("[GunMods] Fully Loaded! (Spread, Recoil, Ammo, Rapid Fire, Multi-Bullet)")
