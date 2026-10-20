@@ -1,4 +1,4 @@
--- MatrixGUI: builds the panel, force-ejects scripts, and stops loops.
+-- MatrixGUI: builds the panel, wires the close button, and handles nuclear ejection.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -312,7 +312,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local bst = Instance.new("UIStroke", btn)
     bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.3
 
-    -- Prefetch script source for fast loading
     local prefetchedSource = nil
     task.spawn(function()
         if scriptInfo.Url then
@@ -419,27 +418,49 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
         state.Active = job
         
         local ctask = setmetatable({}, { __index = task })
-        
-        -- Force kill mechanism: if script tries to wait, check if it's alive.
+        -- Force the script to crash if it tries to wait after being ejected
         ctask.wait = function(...)
             if not job.Alive then error("Process Ejected", 0) end
             return task.wait(...)
         end
-        ctask.spawn = function(callback, ...)
-            if not job.Alive then return end
-            return task.spawn(callback, ...)
+
+        -- Intercept Instance.new so we can destroy any GUI the script creates
+        local fakeInstance = setmetatable({}, { __index = Instance })
+        fakeInstance.new = function(class, parent)
+            local obj = Instance.new(class, parent)
+            if class == "ScreenGui" or class == "BillboardGui" or class == "SurfaceGui" then
+                table.insert(job.Cleanups, function()
+                    if obj then pcall(function() obj:Destroy() end) end
+                end)
+            end
+            return obj
         end
-        ctask.delay = function(delay, callback, ...)
-            if not job.Alive then return end
-            return task.delay(delay, callback, ...)
+
+        -- Intercept RunService so it stops firing when ejected
+        local fakeRunService = {}
+        for k, v in pairs(RunService) do fakeRunService[k] = v end
+        local function wrapSignal(sigName)
+            return {
+                Connect = function(self, cb)
+                    local conn = RunService[sigName]:Connect(function(...)
+                        if not job.Alive then return end
+                        cb(...)
+                    end)
+                    table.insert(job.Conns, conn)
+                    return conn
+                end
+            }
         end
+        fakeRunService.Heartbeat = wrapSignal("Heartbeat")
+        fakeRunService.RenderStepped = wrapSignal("RenderStepped")
 
         local env = {
             script = card, CONFIG = scriptInfo.configValues or {},
             cleanup = function(f) job.OnKill(f) end,
             eject = function() job.Kill() setExec() end,
             task = ctask,
-            RunService = RunService,
+            RunService = fakeRunService,
+            Instance = fakeInstance,
             Players = Players,
             game = game,
             workspace = workspace,
@@ -464,11 +485,12 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
         end
 
         if state.Active and state.Active.Alive then
-            -- FORCE KILL: Disconnect all connections and cancel thread
-            if state.Active.Conns then
-                for _, conn in ipairs(state.Active.Conns) do
-                    pcall(function() conn:Disconnect() end)
-                end
+            -- FORCE KILL EVERYTHING
+            for _, conn in ipairs(state.Active.Conns) do
+                pcall(function() conn:Disconnect() end)
+            end
+            for _, cleanupFn in ipairs(state.Active.Cleanups) do
+                pcall(cleanupFn)
             end
             state.Active.Kill()
             state.Active = nil
