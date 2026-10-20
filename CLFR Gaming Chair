@@ -1,0 +1,187 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local CONFIG = CONFIG or {
+    ["Aura Kill Players"] = false,
+    ["Silent Aim"] = true
+}
+
+-- Wait for Knit
+local Knit
+while not Knit do
+	Knit = shared.Knit
+	task.wait(0.1)
+end
+
+local FirearmService = Knit.GetService("FirearmService")
+local ReplicateHit = FirearmService.ReplicateHit
+
+-- =====================================================================
+-- SMART TEAM CHECK (From v7)
+-- =====================================================================
+local function canTarget(player)
+    local myTeam = LocalPlayer.Team
+    local theirTeam = player.Team
+    if not myTeam or not theirTeam then return false end
+
+    local myTeamName = myTeam.Name
+    local theirTeamName = theirTeam.Name
+
+    -- 1. Exclude Choosing entirely
+    if theirTeamName == "Choosing" then return false end
+
+    -- 2. Global Infected Check (Target ANY infected person, even teammates)
+    if player:GetAttribute("IsInfected") then
+        return true
+    end
+
+    -- 3. Osiris Collective Logic
+    if myTeamName == "Osiris Collective" then
+        if theirTeamName == "Osiris Collective" then return false end
+        if theirTeamName == "Research Subject" then return false end
+        return true
+    end
+
+    -- 4. Research Subject Logic
+    if myTeamName == "Research Subject" then
+        if theirTeamName == "Research Subject" then return false end
+        if theirTeamName == "Osiris Collective" then return false end
+        return true
+    end
+
+    -- 5. Facility Teams Logic (FRU, Security, etc.)
+    local isFacility = (myTeamName == "Facility Response Unit" or myTeamName == "Biohazard Containment Unit" or myTeamName == "Centum Security" or myTeamName == "Domestic Security Agency" or myTeamName == "Facility Oversight" or myTeamName == "Health & Research" or myTeamName == "Administrative Committee")
+    
+    if isFacility then
+        local theirIsFacility = (theirTeamName == "Facility Response Unit" or theirTeamName == "Biohazard Containment Unit" or theirTeamName == "Centum Security" or theirTeamName == "Domestic Security Agency" or theirTeamName == "Facility Oversight" or theirTeamName == "Health & Research" or theirTeamName == "Administrative Committee")
+        
+        if theirIsFacility then return false end
+
+        -- If they are on Research Subject, check if they are KOS
+        if theirTeamName == "Research Subject" then
+            local char = player.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                if head then
+                    local nameTag = head:FindFirstChild("NameTag")
+                    if nameTag then
+                        local kos = nameTag:FindFirstChild("KOS")
+                        if kos and kos.Visible then return true end
+                    end
+                end
+            end
+            return false
+        end
+
+        -- If they are ANY other team (like Osiris), they are hostile
+        return true
+    end
+
+    return false
+end
+
+-- =====================================================================
+-- HIT MANIPULATION (Aura Kill - Valid Targets Only)
+-- =====================================================================
+task.spawn(function()
+	while true do
+		if CONFIG["Aura Kill Players"] then
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer and player.Character and canTarget(player) then
+					local char = player.Character
+					local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+					local hrp = char:FindFirstChild("HumanoidRootPart")
+					
+					if head and hrp then
+						pcall(function()
+							ReplicateHit:Fire(head, head.Position, hrp.Position, false)
+						end)
+					end
+				end
+			end
+		end
+		task.wait(0.2) -- Fires 5 times a second
+	end
+end)
+
+-- =====================================================================
+-- SILENT AIM (Valid Targets Only)
+-- =====================================================================
+local MAX_RANGE = 500
+local FIELD_OF_VIEW = 120
+local TARGET_PARTS = {"Head", "HumanoidRootPart", "Torso", "UpperTorso"}
+
+local function getTargetPart(character)
+	for _, partName in ipairs(TARGET_PARTS) do
+		local part = character:FindFirstChild(partName)
+		if part and part:IsA("BasePart") then
+			return part
+		end
+	end
+	return nil
+end
+
+local function getNearestTarget()
+	local camera = Camera
+	if not camera then return nil end
+
+	local cameraPos = camera.CFrame.Position
+	local cameraLook = camera.CFrame.LookVector
+	local bestTarget = nil
+	local bestScore = math.huge
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			-- Apply the Team Check
+			if canTarget(player) then
+				local targetPart = getTargetPart(player.Character)
+				if targetPart then
+					local targetPos = targetPart.Position
+					local direction = (targetPos - cameraPos)
+					local distance = direction.Magnitude
+
+					if distance <= MAX_RANGE and distance > 1 then
+						direction = direction.Unit
+						local dot = direction:Dot(cameraLook)
+						local angle = math.acos(math.clamp(dot, -1, 1))
+						local angleDeg = math.deg(angle)
+
+						-- Only target players within our field of view cone
+						if angleDeg <= FIELD_OF_VIEW then
+							local score = distance * (1 + angleDeg / 90)
+							if score < bestScore then
+								bestScore = score
+								bestTarget = targetPart
+							end
+						end
+					end
+				end
+			end
+		end
+	end
+	return bestTarget
+end
+
+local originalFire = ReplicateHit.Fire
+ReplicateHit.Fire = function(self, hitInstance, hitPosition, castSource, isAcidGun)
+	if not CONFIG["Silent Aim"] then
+		return originalFire(self, hitInstance, hitPosition, castSource, isAcidGun)
+	end
+
+	local targetPart = getNearestTarget()
+	if targetPart then
+		local character = targetPart.Parent
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+		if humanoid and humanoid.Health > 0 and not character:FindFirstChild("ForceField") then
+			-- Redirect hit to the valid target
+			return originalFire(self, targetPart, targetPart.Position, castSource, isAcidGun)
+		end
+	end
+
+	-- Fall back to original hit if no valid target found
+	return originalFire(self, hitInstance, hitPosition, castSource, isAcidGun)
+end
