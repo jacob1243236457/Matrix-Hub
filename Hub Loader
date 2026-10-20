@@ -40,7 +40,7 @@
       },
       {
         "Name": "Gun Mods",
-        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/BSZ%20Gun%20Mods"
+        "Url": "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/refs/heads/main/BSZ%20Gun%20Mods",
         "configValues": {
           "FireDelaySeconds": 0.01,
           "SpreadRadius": 0,
