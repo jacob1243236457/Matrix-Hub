@@ -1,11 +1,24 @@
--- MatrixGUI: builds the panel, wires the close button, and handles nuclear ejection.
+-- MatrixGUI: Fast loading, self-fetching config, nuclear ejection.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
+
+-- Fetch the config directly inside the GUI
+local function fetchConfig()
+    local url = "https://raw.githubusercontent.com/jacob1243236457/Matrix-Hub/main/Hub%20Loader"
+    local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
+    local ok, res = pcall(game.HttpGet, game, url .. "?t=" .. bust)
+    if ok and type(res) == "string" and res:sub(1, 1) == "[" then
+        local decodeOk, data = pcall(function() return HttpService:JSONDecode(res) end)
+        if decodeOk then return data end
+    end
+    return nil
+end
 
 local function build()
     for _, container in ipairs({PlayerGui, CoreGui}) do
@@ -418,13 +431,11 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
         state.Active = job
         
         local ctask = setmetatable({}, { __index = task })
-        -- Force the script to crash if it tries to wait after being ejected
         ctask.wait = function(...)
             if not job.Alive then error("Process Ejected", 0) end
             return task.wait(...)
         end
 
-        -- Intercept Instance.new so we can destroy any GUI the script creates
         local fakeInstance = setmetatable({}, { __index = Instance })
         fakeInstance.new = function(class, parent)
             local obj = Instance.new(class, parent)
@@ -436,7 +447,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
             return obj
         end
 
-        -- Intercept RunService so it stops firing when ejected
         local fakeRunService = {}
         for k, v in pairs(RunService) do fakeRunService[k] = v end
         local function wrapSignal(sigName)
@@ -485,7 +495,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
         end
 
         if state.Active and state.Active.Alive then
-            -- FORCE KILL EVERYTHING
             for _, conn in ipairs(state.Active.Conns) do
                 pcall(function() conn:Disconnect() end)
             end
@@ -579,11 +588,86 @@ end
 
 local gui = build()
 
+-- Self-Loading Logic (Loads UI first, then fetches JSON)
+task.spawn(function()
+    local configData = fetchConfig()
+    if not configData then
+        gui.StatusLabel.Text = "FAILED TO LOAD CONFIG."
+        return
+    end
+    
+    gui.StatusLabel:Destroy()
+    
+    local Tabs, ActiveKey = {}, nil
+    local function tabKey(g) return tostring(g.GameId) end
+    
+    local function clearGameList()
+        for _, c in ipairs(gui.GameListScroll:GetChildren()) do
+            if c ~= gui.GameListLayout and c ~= gui.GameListPadding then c:Destroy() end
+        end
+    end
+
+    local function ejectAllExcept(exceptCard)
+        for _, tab in pairs(Tabs) do
+            for _, card in ipairs(tab.Cards) do
+                if card ~= exceptCard and card.State.Active and card.State.Active.Alive then
+                    -- Reuse the ejection logic
+                    for _, conn in ipairs(card.State.Active.Conns) do
+                        pcall(function() conn:Disconnect() end)
+                    end
+                    for _, cleanupFn in ipairs(card.State.Active.Cleanups) do
+                        pcall(cleanupFn)
+                    end
+                    card.State.Active.Kill()
+                    card.State.Active = nil
+                    card.SetExec()
+                end
+            end
+        end
+    end
+
+    local function ensureTab(gameData)
+        local key = tabKey(gameData)
+        if Tabs[key] then return Tabs[key] end
+        local tab = { Cards = {}, GameData = gameData }
+        for _, si in ipairs(gameData.scripts or {}) do
+            local card
+            card = buildCard(si, gui.ScriptScroll, nil, function()
+                ejectAllExcept(card)
+            end)
+            table.insert(tab.Cards, card)
+        end
+        Tabs[key] = tab
+        return tab
+    end
+
+    local function showTab(gameData)
+        local key = tabKey(gameData)
+        if ActiveKey == key then return end
+        if ActiveKey and Tabs[ActiveKey] then
+            for _, card in ipairs(Tabs[ActiveKey].Cards) do
+                if card.Frame then card.Frame.Parent = nil end
+            end
+        end
+        gui.ClearScriptArea()
+        local tab = ensureTab(gameData)
+        for _, card in ipairs(tab.Cards) do
+            if card.Frame then card.Frame.Parent = gui.ScriptScroll end
+        end
+        ActiveKey = key
+        gui.ScriptScroll.CanvasSize = UDim2.new(0, 0, 0, gui.ScriptLayout.AbsoluteContentSize.Y + 12)
+    end
+
+    clearGameList()
+    gui.ClearScriptArea()
+    
+    for _, gameData in ipairs(configData) do
+        buildGameButton(gameData, gui.GameListScroll, showTab)
+    end
+    gui.GameListScroll.CanvasSize = UDim2.new(0, 0, 0, gui.GameListLayout.AbsoluteContentSize.Y + 10)
+    if #configData > 0 then showTab(configData[1]) end
+end)
+
 return {
-    ScreenGui = gui.ScreenGui, MainFrame = gui.MainFrame, CloseButton = gui.CloseButton,
-    GameListScroll = gui.GameListScroll, GameListLayout = gui.GameListLayout,
-    GameListPadding = gui.GameListPadding, ScriptScroll = gui.ScriptScroll,
-    ScriptLayout = gui.ScriptLayout, ScriptPadding = gui.ScriptPadding,
-    StatusLabel = gui.StatusLabel, ClearScriptArea = gui.ClearScriptArea,
-    BuildCard = buildCard, BuildGameButton = buildGameButton,
+    ScreenGui = gui.ScreenGui, MainFrame = gui.MainFrame, CloseButton = gui.CloseButton
 }
