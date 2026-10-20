@@ -1,7 +1,8 @@
--- MatrixGUI: builds the panel, prefetches scripts, and handles proper ejection.
+-- MatrixGUI: builds the panel, wires the close button, and handles forceful card ejection.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
@@ -311,7 +312,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local bst = Instance.new("UIStroke", btn)
     bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.3
 
-    -- FAST LOAD: Prefetch script source in the background
     local prefetchedSource = nil
     task.spawn(function()
         if scriptInfo.Url then
@@ -402,7 +402,6 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
 
     local function run()
         local code = prefetchedSource or scriptInfo.Source
-        -- Fallback fetch if prefetch failed or wasn't done yet
         if not code and scriptInfo.Url then
             local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
             local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
@@ -411,19 +410,25 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
                 prefetchedSource = res
             end
         end
-
         if not code then warn("[Hub] no source for " .. tostring(scriptInfo.Name)) return false end
         local fn, err = loadstring(code, scriptInfo.Name or "script")
         if not fn then warn("[Hub] loadstring failed: " .. tostring(err)) return false end
 
         local job = Cleanup.NewJob()
         state.Active = job
-        local ctask = setmetatable({}, { __index = task })
         
-        -- This fixes the eject button. If the job is killed, task.wait throws an error, instantly breaking the script loop.
+        local ctask = setmetatable({}, { __index = task })
         ctask.wait = function(...)
             if not job.Alive then error("Process Ejected", 0) end
             return task.wait(...)
+        end
+        ctask.delay = function(delay, callback, ...)
+            if not job.Alive then return end
+            return task.delay(delay, callback, ...)
+        end
+        ctask.spawn = function(callback, ...)
+            if not job.Alive then return end
+            return task.spawn(callback, ...)
         end
 
         local env = {
@@ -431,6 +436,10 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
             cleanup = function(f) job.OnKill(f) end,
             eject = function() job.Kill() setExec() end,
             task = ctask,
+            RunService = RunService,
+            Players = Players,
+            game = game,
+            workspace = workspace,
         }
         setfenv(fn, setmetatable(env, { __index = getfenv() }))
 
@@ -451,6 +460,12 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
             return
         end
         if state.Active and state.Active.Alive then
+            -- FORCE EJECT: Manually disconnect everything the job tracked
+            if state.Active.Conns then
+                for _, conn in ipairs(state.Active.Conns) do
+                    pcall(function() conn:Disconnect() end)
+                end
+            end
             state.Active.Kill()
             state.Active = nil
             setExec()
