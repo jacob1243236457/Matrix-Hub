@@ -1,109 +1,71 @@
---[[
-    Cleanup — full lifecycle for spawned scripts.
-    Handles: per-script ejection, global purge, respawn cleanup,
-    character-died cleanup.
-]]
-
+-- Cleanup: tracks running jobs, handles eject/purge/respawn.
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 local Cleanup = {}
+Cleanup.Jobs = {}
+Cleanup.Globals = {}
+_G.MatrixHubGlobalCleanups = Cleanup.Globals
 
--- Registry of every spawned "job"
---   job = { kill = fn, conns = {RBXScriptConnection...}, thread = thread }
-Cleanup._jobs = {}
-Cleanup._globalCleanups = {}
-_G.MatrixHubGlobalCleanups = Cleanup._globalCleanups
-
-local function killJob(job)
-    if not job then return end
-
-    -- 1. Cancel running thread
-    if job.thread then
-        pcall(function() task.cancel(job.thread) end)
-        job.thread = nil
+local function kill(job)
+    if not job or not job.Alive then return end
+    job.Alive = false
+    if job.Thread then
+        pcall(task.cancel, job.Thread)
+        job.Thread = nil
     end
-
-    -- 2. Disconnect tracked connections
-    if job.conns then
-        for _, c in ipairs(job.conns) do
-            pcall(function() c:Disconnect() end)
-        end
-        job.conns = {}
+    for _, c in ipairs(job.Conns) do
+        pcall(function() c:Disconnect() end)
     end
-
-    -- 3. Run custom cleanup callbacks
-    if job.cleanups then
-        for _, fn in ipairs(job.cleanups) do
-            pcall(fn)
-        end
-        job.cleanups = {}
+    job.Conns = {}
+    for _, fn in ipairs(job.Cleanups) do
+        pcall(fn)
+    end
+    job.Cleanups = {}
+    for i, j in ipairs(Cleanup.Jobs) do
+        if j == job then table.remove(Cleanup.Jobs, i) break end
     end
 end
 
-function Cleanup.newJob()
-    local job = { conns = {}, cleanups = {}, thread = nil, alive = true }
-
-    job.kill = function()
-        if not job.alive then return end
-        job.alive = false
-        killJob(job)
-        -- Remove from registry
-        for i, j in ipairs(Cleanup._jobs) do
-            if j == job then table.remove(Cleanup._jobs, i) break end
-        end
-    end
-
-    job.addConnection = function(conn)
-        table.insert(job.conns, conn)
+function Cleanup.NewJob()
+    local job = { Alive = true, Conns = {}, Cleanups = {}, Thread = nil }
+    job.Kill = function() kill(job) end
+    job.Track = function(conn)
+        if conn then table.insert(job.Conns, conn) end
         return conn
     end
-
-    job.addCleanup = function(fn)
+    job.OnKill = function(fn)
         if type(fn) == "function" then
-            table.insert(job.cleanups, fn)
-            table.insert(Cleanup._globalCleanups, fn)
+            table.insert(job.Cleanups, fn)
+            table.insert(Cleanup.Globals, fn)
         end
     end
-
-    table.insert(Cleanup._jobs, job)
+    table.insert(Cleanup.Jobs, job)
     return job
 end
 
-function Cleanup.purgeAll()
-    -- Copy first because .kill mutates _jobs
-    local snapshot = {}
-    for i, j in ipairs(Cleanup._jobs) do snapshot[i] = j end
-    for _, j in ipairs(snapshot) do
-        pcall(j.kill)
-    end
-    Cleanup._jobs = {}
-
-    for _, fn in ipairs(Cleanup._globalCleanups) do
-        pcall(fn)
-    end
-    Cleanup._globalCleanups = {}
-    _G.MatrixHubGlobalCleanups = Cleanup._globalCleanups
+function Cleanup.PurgeAll()
+    local snap = {}
+    for i, j in ipairs(Cleanup.Jobs) do snap[i] = j end
+    for _, j in ipairs(snap) do pcall(j.Kill) end
+    Cleanup.Jobs = {}
+    for _, fn in ipairs(Cleanup.Globals) do pcall(fn) end
+    Cleanup.Globals = {}
+    _G.MatrixHubGlobalCleanups = Cleanup.Globals
 end
 
--- ── Automatic respawn / death cleanup ────────────────────────
--- Whenever the character is added (respawn) or dies, wipe every
--- spawned script so effects don't linger across respawns.
-local function wipe()
-    Cleanup.purgeAll()
-end
-
-LocalPlayer.CharacterAdded:Connect(wipe)
-
-do
+LocalPlayer.CharacterAdded:Connect(function() Cleanup.PurgeAll() end)
+task.spawn(function()
     local char = LocalPlayer.Character
     if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then hum.Died:Connect(wipe) end
-        char.ChildAdded:Connect(function(child)
-            if child:IsA("Humanoid") then child.Died:Connect(wipe) end
+        local h = char:FindFirstChildOfClass("Humanoid")
+        if h then h.Died:Connect(function() Cleanup.PurgeAll() end) end
+        char.ChildAdded:Connect(function(c)
+            if c:IsA("Humanoid") then
+                c.Died:Connect(function() Cleanup.PurgeAll() end)
+            end
         end)
     end
-end
+end)
 
 return Cleanup
