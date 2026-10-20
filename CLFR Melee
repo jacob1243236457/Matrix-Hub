@@ -1,154 +1,104 @@
---// =====================================================================
---// Melee & Punch Mods v27 — Clean (Spam + No Stamina)
---// =====================================================================
-
-print("[MeleeMod] LOADED v27")
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
 local CONFIG = CONFIG or {
+    ["Spam Punch"] = true,
     ["Spam Swing"] = true,
     ["No Stamina"] = true,
-    ["Spam Punch"] = true,
+    ["Melee Reach"] = 50,
+    ["Aura Punch"] = false
 }
 
-local hooksInstalled = false
-local mouseHeld = false
-local connections = {}
-local hookedSwing = nil
-local hookedPunch = nil
-
-local function track(c) table.insert(connections, c); return c end
-
-local function findTable(name, requiredFuncs)
-    if getgc then
-        for _, obj in ipairs(getgc(true)) do
-            if type(obj) == "table" then
-                local match = true
-                if name and rawget(obj, "Name") ~= name then match = false end
-                if match and requiredFuncs then
-                    for _, func in ipairs(requiredFuncs) do
-                        if type(rawget(obj, func)) ~= "function" then match = false; break end
-                    end
-                end
-                if match then return obj end
-            end
-        end
-    end
-    return nil
+-- Wait for Knit
+local Knit
+while not Knit do
+	Knit = shared.Knit
+	task.wait(0.1)
 end
 
-local function installMods()
-    if hooksInstalled then return end
+local PunchController = Knit.GetController("PunchController")
+local MeleeController = Knit.GetController("MeleeController")
+local PunchService = Knit.GetService("PunchService")
+local StaminaController = Knit.GetController("StaminaController")
 
-    -- Melee Controller
-    local mc = findTable("MeleeController", {"_swing"})
-    if mc then
-        hookedSwing = mc._swing
-        mc._swing = function(self, isCharged)
-            local state = self._state
-            if not state then return hookedSwing(self, isCharged) end
+-- 1. Bypass Stamina
+if CONFIG["No Stamina"] and StaminaController then
+    local originalSpend = StaminaController.Spend
+    StaminaController.Spend = function(self, amount)
+        return true -- Do nothing, never drain stamina
+    end
+    
+    local originalHas = StaminaController.HasStamina
+    if originalHas then
+        StaminaController.HasStamina = function(self) return true end
+    end
+    print("[MeleeMod] Infinite Stamina Active ✔")
+end
 
-            local origHas, origSpend
-            if CONFIG["No Stamina"] then
-                origHas = self.StaminaController.HasStamina
-                origSpend = self.StaminaController.Spend
-                self.StaminaController.HasStamina = function() return true end
-                self.StaminaController.Spend = function() end
-            end
+-- 2. Melee Reach & Bypass CanHit
+if CONFIG["Melee Reach"] and CONFIG["Melee Reach"] > 10 then
+    local success, MeleeHitDetection = pcall(require, game:GetService("ReplicatedStorage").Shared.SharedModules.MeleeHitDetection)
+    if success and MeleeHitDetection then
+        local originalCheck = MeleeHitDetection.check
+        MeleeHitDetection.check = function(character, params)
+            params.reach = CONFIG["Melee Reach"]
+            params.maxTargets = 999 -- Hit everyone in range
+            params.canHit = function(target) return true end -- Hit through walls
+            return originalCheck(character, params)
+        end
+        print("[MeleeMod] Melee Reach set to " .. CONFIG["Melee Reach"] .. " studs ✔")
+    end
+end
 
-            local res = hookedSwing(self, isCharged)
+-- 3. Spam Punch (Cooldown Bypass)
+local originalPunch = PunchController.Punch
+PunchController.Punch = function(self, ...)
+    if CONFIG["Spam Punch"] then
+        self.LastPunchAt = 0
+        if self.Character and self.Character:GetAttribute("PunchDisabled") then
+            self.Character:SetAttribute("PunchDisabled", false)
+        end
+    end
+    return originalPunch(self, ...)
+end
+print("[MeleeMod] Rapid Punch Active ✔")
 
-            if CONFIG["Spam Swing"] and self._state then
-                self._state.BusyUntil = 0
-                self._state.PendingPress = nil
+-- 4. Spam Swing (Cooldown Bypass)
+local originalSwing = MeleeController.Swing
+if originalSwing then
+    MeleeController.Swing = function(self, ...)
+        if CONFIG["Spam Swing"] then
+            if self.LastSwingAt then self.LastSwingAt = 0 end
+            if self._state then 
+                self._state.BusyUntil = 0 
                 self._state.Lockout = false
             end
-
-            if CONFIG["No Stamina"] then
-                self.StaminaController.HasStamina = origHas
-                self.StaminaController.Spend = origSpend
-            end
-            return res
         end
-    end
-
-    -- Punch Controller
-    local pc = findTable("PunchController", {"Punch"})
-    if pc then
-        hookedPunch = pc.Punch
-        pc.Punch = function(self, ...)
-            local origSpend
-            if CONFIG["No Stamina"] and self.StaminaController then
-                origSpend = self.StaminaController.Spend
-                self.StaminaController.Spend = function() end
-            end
-
-            local res = hookedPunch(self, ...)
-
-            if CONFIG["Spam Punch"] then
-                self.LastPunchAt = 0
-            end
-
-            if CONFIG["No Stamina"] and origSpend then
-                self.StaminaController.Spend = origSpend
-            end
-            return res
-        end
-    end
-
-    if hookedSwing or hookedPunch then
-        hooksInstalled = true
-        print("[MeleeMod] Hooks Installed ✔")
+        return originalSwing(self, ...)
     end
 end
+print("[MeleeMod] Rapid Swing Active ✔")
 
-track(UIS.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then mouseHeld = true end
-end))
-
-track(UIS.InputEnded:Connect(function(input, gameProcessed)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then mouseHeld = false end
-end))
-
-track(RunService.Heartbeat:Connect(function()
-    installMods()
-    if mouseHeld then
-        if CONFIG["Spam Swing"] then
-            local mc = findTable("MeleeController", {"_swing"})
-            if mc and mc._state then mc._state.BusyUntil = 0; mc._state.Lockout = false end
-        end
-        if CONFIG["Spam Punch"] then
-            local pc = findTable("PunchController", {"Punch"})
-            if pc then pc.LastPunchAt = 0 end
+-- 5. Auto Punch Aura (If enabled)
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if CONFIG["Aura Punch"] and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+            local myPos = LocalPlayer.Character.PrimaryPart.Position
+            
+            -- Find players to punch
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character.PrimaryPart then
+                    local dist = (player.Character.PrimaryPart.Position - myPos).Magnitude
+                    if dist < 100 then
+                        -- Punch them directly through the server
+                        pcall(function()
+                            PunchService:Punch(player)
+                        end)
+                    end
+                end
+            end
         end
     end
-end))
-
-local function cleanupMods()
-    for _, c in ipairs(connections) do if c then pcall(function() c:Disconnect() end) end end
-    connections = {}
-    mouseHeld = false
-
-    local mc = findTable("MeleeController", {"_swing"})
-    if mc and hookedSwing then mc._swing = hookedSwing; hookedSwing = nil end
-
-    local pc = findTable("PunchController", {"Punch"})
-    if pc and hookedPunch then pc.Punch = hookedPunch; hookedPunch = nil end
-
-    if mc and mc.StaminaController then
-        pcall(function()
-            if type(mc.StaminaController.SetStamina) == "function" then mc.StaminaController:SetStamina(100) end
-        end)
-    end
-    if mc and mc._state then mc._state.BusyUntil = 0 end
-    if pc then pc.LastPunchAt = 0 end
-    print("[MeleeMod] Cleaned up safely ✔")
-end
-
-if cleanup then cleanup(cleanupMods) end
-eject = cleanupMods
+end)
