@@ -1,4 +1,4 @@
--- MatrixGUI: builds the panel, wires the close button, and handles forceful card ejection.
+-- MatrixGUI: builds the panel, force-ejects scripts, and stops loops.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -312,6 +312,7 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local bst = Instance.new("UIStroke", btn)
     bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.3
 
+    -- Prefetch script source for fast loading
     local prefetchedSource = nil
     task.spawn(function()
         if scriptInfo.Url then
@@ -418,17 +419,19 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
         state.Active = job
         
         local ctask = setmetatable({}, { __index = task })
+        
+        -- Force kill mechanism: if script tries to wait, check if it's alive.
         ctask.wait = function(...)
             if not job.Alive then error("Process Ejected", 0) end
             return task.wait(...)
         end
-        ctask.delay = function(delay, callback, ...)
-            if not job.Alive then return end
-            return task.delay(delay, callback, ...)
-        end
         ctask.spawn = function(callback, ...)
             if not job.Alive then return end
             return task.spawn(callback, ...)
+        end
+        ctask.delay = function(delay, callback, ...)
+            if not job.Alive then return end
+            return task.delay(delay, callback, ...)
         end
 
         local env = {
@@ -459,8 +462,9 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
             task.delay(1, function() if btn.Parent then setExec() end end)
             return
         end
+
         if state.Active and state.Active.Alive then
-            -- FORCE EJECT: Manually disconnect everything the job tracked
+            -- FORCE KILL: Disconnect all connections and cancel thread
             if state.Active.Conns then
                 for _, conn in ipairs(state.Active.Conns) do
                     pcall(function() conn:Disconnect() end)
