@@ -13,7 +13,7 @@ local Roles = {
 local Users = {
 [76244963] = { Name = "Michalos", Rank = "Admin" },
 [30898713] = { Name = "Soul", Rank = "Admin" },
-[1050749522] = { Name = "Nominets", Rank = "Admin" },|
+[1050749522] = { Name = "Nominets", Rank = "Admin" },
 [1473664934] = { Name = "Paid_actor", Rank = "SR Moderator" },
 [3481445370] = { Name = "Lurithic", Rank = "Moderator" },
 [1456049163] = { Name = "Sellular", Rank = "Moderator" },
