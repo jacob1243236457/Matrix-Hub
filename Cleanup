@@ -1,4 +1,4 @@
--- Cleanup: tracks running jobs, handles eject/purge/respawn.
+-- Cleanup: tracks running jobs, wipes on respawn.
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
@@ -54,6 +54,7 @@ function Cleanup.PurgeAll()
     _G.MatrixHubGlobalCleanups = Cleanup.Globals
 end
 
+-- Wipe on respawn / death so effects don't linger.
 LocalPlayer.CharacterAdded:Connect(function() Cleanup.PurgeAll() end)
 task.spawn(function()
     local char = LocalPlayer.Character
