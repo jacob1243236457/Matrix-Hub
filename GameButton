@@ -1,0 +1,95 @@
+-- GameButton: sidebar game entry with working icon.
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local function isUniversal(id)
+    if typeof(id) == "string" then return id:lower() == "universal" or id == "0" end
+    return id == 0
+end
+
+local function setIcon(icon, placeId)
+    local numId = tonumber(placeId)
+    if not numId then
+        icon.Image = "rbxassetid://6023426915"
+        return
+    end
+
+    -- rbxthumb:// is the reliable path across executors.
+    icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
+
+    -- Fall back to the asset id if rbxthumb returns nothing.
+    task.spawn(function()
+        local ok, info = pcall(function()
+            return MarketplaceService:GetProductInfo(numId)
+        end)
+        if ok and info then
+            local assetId = info.IconImageAssetId
+            if assetId and assetId ~= 0 then
+                -- Only override if rbxthumb failed; check after a moment.
+                task.wait(0.5)
+                if icon.Image == "" or icon.IsLoaded == false then
+                    icon.Image = "rbxassetid://" .. tostring(assetId)
+                end
+            end
+        end
+    end)
+end
+
+local function build(gameData, parent, onClick)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, 0, 0, 50)
+    btn.BackgroundColor3 = Color3.fromRGB(8, 15, 8)
+    btn.BackgroundTransparency = 0.3
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    btn.Text = ""
+    btn.ZIndex = 2
+    btn.Parent = parent
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    local bst = Instance.new("UIStroke", btn)
+    bst.Color = Color3.fromRGB(0, 255, 65)
+    bst.Transparency = 0.7
+
+    local icon = Instance.new("ImageLabel")
+    icon.Size = UDim2.new(0, 36, 0, 36)
+    icon.Position = UDim2.new(0, 7, 0.5, -18)
+    icon.BackgroundColor3 = Color3.fromRGB(0, 40, 10)
+    icon.BorderSizePixel = 0
+    icon.ZIndex = 2
+    icon.Parent = btn
+    Instance.new("UICorner", icon).CornerRadius = UDim.new(0, 4)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -52, 1, 0)
+    lbl.Position = UDim2.new(0, 48, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "Place " .. tostring(gameData.GameId)
+    lbl.TextColor3 = Color3.fromRGB(0, 255, 65)
+    lbl.TextSize = 11
+    lbl.Font = Enum.Font.Code
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextTruncate = Enum.TextTruncate.AtEnd
+    lbl.ZIndex = 2
+    lbl.Parent = btn
+
+    local pid = gameData.GameId
+    if isUniversal(pid) then
+        lbl.Text = "Universal Scripts"
+        icon.Image = "rbxassetid://6023426915"
+    elseif pid then
+        setIcon(icon, pid)
+        task.spawn(function()
+            local numId = tonumber(pid)
+            if numId then
+                local ok, info = pcall(function()
+                    return MarketplaceService:GetProductInfo(numId)
+                end)
+                if ok and info and info.Name then lbl.Text = info.Name end
+            end
+        end)
+    end
+
+    btn.MouseButton1Click:Connect(function() onClick(gameData) end)
+    return btn
+end
+
+return { Build = build }
