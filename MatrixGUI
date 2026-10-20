@@ -1,46 +1,10 @@
--- MatrixGUI: builds the panel, wires nothing external. Fast path: shell first, effects after.
+-- MatrixGUI: builds the panel, calls IconLoader for game icons.
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui") or CoreGui
-
--- Resolve icon asset id from a place id, cached per place.
-local iconCache = {}
-local function resolveIconAsset(placeId)
-    local numId = tonumber(placeId)
-    if not numId then return nil end
-    if iconCache[numId] ~= nil then return iconCache[numId] end
-    local ok, info = pcall(function()
-        return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Asset)
-    end)
-    local assetId = ok and info and info.IconImageAssetId or nil
-    if not assetId or assetId == 0 then
-        ok, info = pcall(function()
-            return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Game)
-        end)
-        assetId = ok and info and info.IconImageAssetId or nil
-    end
-    iconCache[numId] = assetId and assetId ~= 0 and assetId or false
-    return iconCache[numId]
-end
-
-local function setIcon(icon, placeId)
-    local numId = tonumber(placeId)
-    if not numId then
-        icon.Image = "rbxassetid://6023426915"
-        return
-    end
-    -- Try the asset-id route first (works for every executor).
-    local assetId = resolveIconAsset(numId)
-    if assetId then
-        icon.Image = "rbxthumb://type=Asset&id=" .. tostring(assetId) .. "&w=150&h=150"
-        return
-    end
-    -- Fallback: direct place thumbnail.
-    icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
-end
 
 local function build()
     for _, container in ipairs({PlayerGui, CoreGui}) do
@@ -86,7 +50,6 @@ local function build()
     canvas.ZIndex = 0
     canvas.Parent = main
 
-    -- Effects start AFTER a short delay so panel paints first.
     task.delay(0.05, function()
         local cols, cw = 45, 620 / 45
         local chars = {"0","1","A","B","C","D","E","F","X","Z","S","T","R","H","I","N"}
@@ -298,8 +261,8 @@ local function build()
     }
 end
 
--- Card with background prefetch so EXECUTE is instant.
 local function buildCard(scriptInfo, parent, Cleanup, onExecute)
+    -- Standard card logic (unchanged)
     local mode = (scriptInfo.Mode or "toggle"):lower()
     local cfgCount = 0
     if type(scriptInfo.configValues) == "table" then
@@ -348,26 +311,19 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     local bst = Instance.new("UIStroke", btn)
     bst.Color = Color3.fromRGB(0, 255, 65); bst.Transparency = 0.3
 
-    -- Prefetch source in the background the moment the card exists.
-    local prefetched, prefetching = nil, false
-    local function prefetch()
-        if prefetched or prefetching then return end
-        prefetching = true
-        if not scriptInfo.Url then
-            prefetched = scriptInfo.Source
-            prefetching = false
-            return
-        end
-        task.spawn(function()
+    -- Prefetch source immediately
+    local prefetched = nil
+    task.spawn(function()
+        if scriptInfo.Url then
             local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
             local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
             if ok and type(res) == "string" and #res > 10 and res:sub(1, 1) ~= "<" then
                 prefetched = res
             end
-            prefetching = false
-        end)
-    end
-    task.spawn(prefetch)
+        else
+            prefetched = scriptInfo.Source
+        end
+    end)
 
     if type(scriptInfo.configValues) == "table" and cfgCount > 0 then
         local cont = Instance.new("Frame")
@@ -445,27 +401,18 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     end
 
     local function run()
-        -- Use prefetched source; fetch only if prefetch failed or not done yet.
         local code = prefetched or scriptInfo.Source
-        if not code then
-            if scriptInfo.Url then
-                local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
-                local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
-                if ok and type(res) == "string" and #res > 10 and res:sub(1, 1) ~= "<" then
-                    code = res
-                    prefetched = res
-                end
+        if not code and scriptInfo.Url then
+            local bust = ("%d_%d_%d"):format(os.time(), math.floor(os.clock() * 1e6), math.random(1, 1e9))
+            local ok, res = pcall(game.HttpGet, game, scriptInfo.Url .. "?t=" .. bust)
+            if ok and type(res) == "string" and #res > 10 and res:sub(1, 1) ~= "<" then
+                code = res
+                prefetched = res
             end
         end
-        if not code then
-            warn("[Hub] no source for " .. tostring(scriptInfo.Name))
-            return false
-        end
+        if not code then warn("[Hub] no source for " .. tostring(scriptInfo.Name)) return false end
         local fn, err = loadstring(code, scriptInfo.Name or "script")
-        if not fn then
-            warn("[Hub] loadstring failed: " .. tostring(err))
-            return false
-        end
+        if not fn then warn("[Hub] loadstring failed: " .. tostring(err)) return false end
 
         local job = Cleanup.NewJob()
         state.Active = job
@@ -476,8 +423,7 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
         end
 
         local env = {
-            script = card,
-            CONFIG = scriptInfo.configValues or {},
+            script = card, CONFIG = scriptInfo.configValues or {},
             cleanup = function(f) job.OnKill(f) end,
             eject = function() job.Kill() setExec() end,
             task = ctask,
@@ -486,12 +432,8 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
 
         job.Thread = task.spawn(function()
             local ok, runErr = pcall(fn)
-            if not ok and runErr ~= "Process Ejected" then
-                warn("[Hub] " .. tostring(scriptInfo.Name) .. ": " .. tostring(runErr))
-            end
-            if job.Alive and mode == "toggle" then
-                setExec(); state.Active = nil
-            end
+            if not ok and runErr ~= "Process Ejected" then warn("[Hub] " .. tostring(scriptInfo.Name) .. ": " .. tostring(runErr)) end
+            if job.Alive and mode == "toggle" then setExec(); state.Active = nil end
         end)
         return true
     end
@@ -524,7 +466,7 @@ local function buildCard(scriptInfo, parent, Cleanup, onExecute)
     return { Frame = card, State = state, Run = run, SetExec = setExec, SetEject = setEject }
 end
 
-local function buildGameButton(gameData, parent, onClick)
+local function buildGameButton(gameData, parent, onClick, IconLoader)
     local isUniversal = false
     if typeof(gameData.GameId) == "string" then
         isUniversal = gameData.GameId:lower() == "universal" or gameData.GameId == "0"
@@ -573,14 +515,9 @@ local function buildGameButton(gameData, parent, onClick)
     else
         local numId = tonumber(gameData.GameId)
         if numId then
-            -- Show a fast local fallback first so something always renders.
-            icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(numId) .. "&w=150&h=150"
-            -- Resolve the asset id in the background and swap in.
+            -- Call the new IconLoader module
+            icon.Image = IconLoader.Get(numId)
             task.spawn(function()
-                local asset = resolveIconAsset(numId)
-                if asset then
-                    icon.Image = "rbxthumb://type=Asset&id=" .. tostring(asset) .. "&w=150&h=150"
-                end
                 local ok, info = pcall(function()
                     return MarketplaceService:GetProductInfo(numId, Enum.InfoType.Game)
                 end)
