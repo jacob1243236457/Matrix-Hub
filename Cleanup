@@ -1,4 +1,4 @@
--- Cleanup: tracks running jobs, wipes on respawn.
+-- Cleanup: tracks running jobs, but no longer purges on respawn.
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
@@ -54,19 +54,7 @@ function Cleanup.PurgeAll()
     _G.MatrixHubGlobalCleanups = Cleanup.Globals
 end
 
--- Wipe on respawn / death so effects don't linger.
-LocalPlayer.CharacterAdded:Connect(function() Cleanup.PurgeAll() end)
-task.spawn(function()
-    local char = LocalPlayer.Character
-    if char then
-        local h = char:FindFirstChildOfClass("Humanoid")
-        if h then h.Died:Connect(function() Cleanup.PurgeAll() end) end
-        char.ChildAdded:Connect(function(c)
-            if c:IsA("Humanoid") then
-                c.Died:Connect(function() Cleanup.PurgeAll() end)
-            end
-        end)
-    end
-end)
+-- Removed the CharacterAdded and Died connections.
+-- Scripts now persist through respawns until manually ejected or closed.
 
 return Cleanup
